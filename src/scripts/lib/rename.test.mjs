@@ -14,6 +14,7 @@ import {
   renameSkillMd, renameManifest, renamePackage, stripTemplateOnly, revealSkillOnly,
   fillPlaceholders, renameReadme, resetChangelog, TEMPLATE_NAME, TEMPLATE_REPO,
 } from './rename.mjs';
+import { CLAUDE_PLUGIN_PATH, MANIFESTS, MARKETPLACE_PATH, SKILLS_DIR } from './manifests.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
@@ -35,7 +36,7 @@ const repoFile = path => readFile(join(ROOT, path), 'utf8');
  * Whether this repo is still the template. Once init-skill has run, the
  * shipped-file tests no longer apply (their files were renamed), so they skip.
  */
-const IS_TEMPLATE = JSON.parse(await repoFile('.claude-plugin/plugin.json')).name === TEMPLATE_NAME;
+const IS_TEMPLATE = JSON.parse(await repoFile(CLAUDE_PLUGIN_PATH)).name === TEMPLATE_NAME;
 
 /** Test options that skip a shipped-file test in an initialized skill repo. */
 const SHIPPED = Object.freeze({ skip: IS_TEMPLATE ? false : 'repo already initialized; template files are gone' });
@@ -183,7 +184,7 @@ describe('yamlScalar', () => {
 
 describe('renameSkillMd', () => {
   test('rewrites the shipped SKILL.md name, description and title', SHIPPED, async () => {
-    const out = renameSkillMd(await repoFile('skills/skill-template/SKILL.md'), DOCKET);
+    const out = renameSkillMd(await repoFile(`${SKILLS_DIR}/skill-template/SKILL.md`), DOCKET);
     assert.equal(frontmatterValue(out, 'name'), 'docket');
     assert.equal(frontmatterValue(out, 'description'), DOCKET.description);
     assert.match(out, /^# docket$/m);
@@ -220,7 +221,7 @@ describe('renameSkillMd', () => {
 });
 
 describe('renameManifest', () => {
-  const paths = ['.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.codex-plugin/plugin.json', 'plugin.json'];
+  const paths = MANIFESTS.map(m => m.path).filter(p => p !== 'package.json');
 
   test('rewrites every shipped manifest so no trace of the template remains', SHIPPED, async () => {
     for (const path of paths) {
@@ -230,8 +231,13 @@ describe('renameManifest', () => {
     }
   });
 
+  test('keeps the shipped marketplace pointing at the plugin folder', SHIPPED, async () => {
+    const out = renameManifest(MARKETPLACE_PATH, JSON.parse(await repoFile(MARKETPLACE_PATH)), DOCKET);
+    assert.deepEqual(out.plugins.map(p => p.source), ['./plugin']);
+  });
+
   test('sets homepage and repository on the plugin manifests', SHIPPED, async () => {
-    for (const path of ['.claude-plugin/plugin.json', '.codex-plugin/plugin.json']) {
+    for (const path of [CLAUDE_PLUGIN_PATH, 'plugin/.codex-plugin/plugin.json']) {
       const out = renameManifest(path, JSON.parse(await repoFile(path)), DOCKET);
       assert.equal(out.description, DOCKET.description);
       assert.equal(out.homepage, 'https://github.com/StoneCypher/docket#readme');
@@ -244,7 +250,7 @@ describe('renameManifest', () => {
       name: 'skill-template', owner: { name: 'J' },
       plugins: [{ name: 'other', description: 'keep' }, { name: 'skill-template', description: 'old', version: '0.3.0' }],
     };
-    const out = renameManifest('.claude-plugin/marketplace.json', market, DOCKET);
+    const out = renameManifest(MARKETPLACE_PATH, market, DOCKET);
     assert.equal(out.name, 'docket');
     assert.equal('description' in out, false);
     assert.deepEqual(out.plugins, [
@@ -255,7 +261,7 @@ describe('renameManifest', () => {
   });
 
   test('throws when the marketplace has no entry for the old name', () => {
-    assert.throws(() => renameManifest('.claude-plugin/marketplace.json', { name: 'x', plugins: [] }, DOCKET),
+    assert.throws(() => renameManifest(MARKETPLACE_PATH, { name: 'x', plugins: [] }, DOCKET),
       /no plugin entry named "skill-template"/);
   });
 
@@ -303,6 +309,8 @@ describe('renameReadme', () => {
     assert.match(out, /\/plugin install docket@docket/);
     assert.match(out, /\/plugin marketplace add StoneCypher\/docket/);
     assert.match(out, /`docket:docket`/, 'the plugin invocation name is filled in');
+    assert.match(out, /plugin\/skills\/docket/, 'copy instructions point into the plugin folder');
+    assert.doesNotMatch(out, /docket\/skills\/docket|`skills\/docket/, 'no instruction points at the old repo-root skills/ folder');
     for (const residue of ['<name>', '<repo>', '<description>', 'template-only', 'skill-only', 'init-skill', 'skill-template']) {
       assert.equal(out.includes(residue), false, `README still contains "${residue}"`);
     }
@@ -339,7 +347,7 @@ describe('checkOptions', () => {
   });
 
   test('the template constants describe the shipped template', SHIPPED, async () => {
-    const plugin = JSON.parse(await repoFile('.claude-plugin/plugin.json'));
+    const plugin = JSON.parse(await repoFile(CLAUDE_PLUGIN_PATH));
     assert.equal(plugin.name, TEMPLATE_NAME);
     assert.equal(plugin.repository, `https://github.com/${TEMPLATE_REPO}`);
   });

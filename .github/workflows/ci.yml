@@ -46,7 +46,15 @@ jobs:
           node-version: ${{ matrix.node }}
 
       - name: Unit tests
-        run: npm test
+        # Same as `npm test`, plus a spec summary file. Options must come
+        # before the glob; npm would append extra arguments after it, where
+        # node --test ignores them.
+        run: node --test --test-reporter=dot --test-reporter-destination=stdout --test-reporter=spec --test-reporter-destination=test-summary.txt "src/scripts/**/*.test.mjs"
+
+      # node --test exits 0 when its glob matches no files, so a moved or
+      # misnamed test folder would otherwise pass silently.
+      - name: Fail if no tests ran
+        run: grep -Eq "tests [1-9]" test-summary.txt
 
       - name: Validate skill
         run: npm run validate

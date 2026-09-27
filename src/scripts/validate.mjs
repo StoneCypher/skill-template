@@ -1,5 +1,5 @@
 /**
- * Validates a skill repo: frontmatter, names, manifests, versions, reference files.
+ * Validates a skill repo: frontmatter, names, manifests, versions, reference files, and what ships under plugin/.
  *
  * Reads the repo once into a snapshot, runs the pure checks in lib/checks.mjs
  * on it, prints findings grouped by check, and exits 1 on any error. Warnings
@@ -11,10 +11,10 @@
  * @see ./checksums.mjs
  */
 
-import { stat } from 'node:fs/promises';
+import { readdir, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { CHECKSUM_FILE, parseChecksums, runChecks } from './lib/checks.mjs';
-import { MANIFESTS } from './lib/manifests.mjs';
+import { CHECKSUM_FILE, PLUGIN_LICENSE, parseChecksums, runChecks } from './lib/checks.mjs';
+import { MANIFESTS, PLUGIN_ROOT, SKILLS_DIR } from './lib/manifests.mjs';
 import { hashFiles, isMain, listReferenceFiles, listSubdirectories, readTextOrNull } from './checksums.mjs';
 
 /**
@@ -33,23 +33,53 @@ async function isFile(root, path) {
 }
 
 /**
- * Finds every SKILL.md in either supported layout.
+ * Finds every SKILL.md, which must sit at `plugin/skills/<name>/SKILL.md`.
  *
- * Skills may sit at `skills/<name>/SKILL.md` or, for a single-skill repo, at
- * the root as `SKILL.md`; both are found so the layout can change without
- * touching the validator.
+ * Codex accepts only a real subdirectory as its skills path, so a SKILL.md at
+ * the repo or plugin root is never found (and never loads).
  *
  * @param {string} root  Absolute repo root.
- * @returns {Promise<string[]>}  Repo-relative paths, root first, then sorted.
+ * @returns {Promise<string[]>}  Repo-relative paths, sorted.
  *
  * @example
- * await findSkillPaths('/repo'); // ['skills/skill-template/SKILL.md']
+ * await findSkillPaths('/repo'); // ['plugin/skills/skill-template/SKILL.md']
+ *
+ * @see SKILLS_DIR
  */
 export async function findSkillPaths(root) {
-  const nested = (await listSubdirectories(join(root, 'skills'))).map(d => `skills/${d}/SKILL.md`);
-  const candidates = ['SKILL.md', ...nested];
+  const candidates = (await listSubdirectories(join(root, SKILLS_DIR))).map(d => `${SKILLS_DIR}/${d}/SKILL.md`);
   const present = await Promise.all(candidates.map(p => isFile(root, p)));
   return candidates.filter((_, i) => present[i]);
+}
+
+/**
+ * Lists everything under `plugin/`, so dev files that would reach users' caches can be flagged.
+ *
+ * `node_modules` folders are reported once, with a trailing `/`, and not
+ * descended into: one is enough to warn about, and walking it would be slow.
+ *
+ * @param {string} root         Absolute repo root.
+ * @param {string} [dir]        Repo-relative folder to list; defaults to the plugin root.
+ * @returns {Promise<string[]>}  Repo-relative, forward-slash paths, sorted; [] when the folder is missing.
+ *
+ * @example
+ * await listPluginPaths('/repo');
+ * // ['plugin/.claude-plugin/plugin.json', 'plugin/LICENSE', 'plugin/skills/pdf/SKILL.md', ...]
+ */
+export async function listPluginPaths(root, dir = PLUGIN_ROOT) {
+  let entries;
+  try {
+    entries = await readdir(join(root, dir), { withFileTypes: true });
+  } catch (err) {
+    if (err?.code === 'ENOENT' || err?.code === 'ENOTDIR') return [];
+    throw err;
+  }
+  const nested = await Promise.all(entries.map(e => {
+    const path = `${dir}/${e.name}`;
+    if (e.isDirectory()) return e.name === 'node_modules' ? [`${path}/`] : listPluginPaths(root, path);
+    return e.isFile() ? [path] : [];
+  }));
+  return nested.flat().sort();
 }
 
 /**
@@ -66,7 +96,10 @@ export async function readSnapshot(root) {
   const referencePaths = await listReferenceFiles(root);
   const listed = checksumText === null ? [] : Object.keys(parseChecksums(checksumText).listed);
   const hashes = await hashFiles(root, [...new Set([...listed, ...referencePaths])]);
-  return { skills, manifests, checksumText, referencePaths, hashes };
+  const rootLicense = await readTextOrNull(root, 'LICENSE');
+  const pluginLicense = await readTextOrNull(root, PLUGIN_LICENSE);
+  const pluginPaths = await listPluginPaths(root);
+  return { skills, manifests, checksumText, referencePaths, hashes, rootLicense, pluginLicense, pluginPaths };
 }
 
 /**

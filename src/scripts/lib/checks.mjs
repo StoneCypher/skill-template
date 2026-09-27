@@ -11,7 +11,7 @@
  */
 
 import { parseFrontmatter, FrontmatterError } from './frontmatter.mjs';
-import { versionOf } from './manifests.mjs';
+import { PLUGIN_ROOT, SKILLS_DIR, isMarketplace, versionOf } from './manifests.mjs';
 
 /**
  * One problem found by a check.
@@ -26,7 +26,7 @@ import { versionOf } from './manifests.mjs';
  * A SKILL.md file as read from disk.
  *
  * @typedef {object} SkillFile
- * @property {string} path  Repo-relative path: `SKILL.md` or `skills/<name>/SKILL.md`.
+ * @property {string} path  Repo-relative path: `plugin/skills/<name>/SKILL.md`.
  * @property {string} text  The file's contents.
  */
 
@@ -45,6 +45,10 @@ import { versionOf } from './manifests.mjs';
  * @property {string | null} checksumText      The checksum file's text, or null if absent.
  * @property {string[]} referencePaths         Repo-relative paths of every reference file on disk.
  * @property {Record<string, string | null>} hashes  sha256 of each listed or on-disk reference path; null if missing.
+ * @property {string | null} rootLicense       The repo root `LICENSE` text, or null if absent.
+ * @property {string | null} pluginLicense     `plugin/LICENSE` text, or null if absent.
+ * @property {string[]} pluginPaths            Repo-relative paths of everything under `plugin/`:
+ *   files as-is, and `node_modules` folders (not descended into) with a trailing `/`.
  */
 
 /** Longest skill name the Agent Skills spec allows. */
@@ -68,8 +72,14 @@ export const CHECKSUM_FILE = '.github/reference-checksums.json';
 /** A lowercase sha256 hex digest. */
 const SHA256_HEX = /^[0-9a-f]{64}$/;
 
-/** A skill folder's SKILL.md path; captures the folder name. */
-const NESTED_SKILL = /^skills\/([^/]+)\/SKILL\.md$/;
+/** A skill folder's SKILL.md path under `plugin/skills/`; captures the folder name. */
+const NESTED_SKILL = new RegExp(`^${SKILLS_DIR}/([^/]+)/SKILL\\.md$`);
+
+/** The `source` the marketplace's plugin entry must have, so hosts cache only the plugin folder. */
+export const PLUGIN_SOURCE = `./${PLUGIN_ROOT}`;
+
+/** Where the licence users receive lives; it must match the root `LICENSE`. */
+export const PLUGIN_LICENSE = `${PLUGIN_ROOT}/LICENSE`;
 
 /**
  * Builds an error finding.
@@ -102,13 +112,13 @@ export const warn = (check, message) => ({ level: 'warn', check, message });
  * @returns {Finding[]}  An error for none, a warning for several.
  *
  * @example
- * checkSkillCount(['skills/pdf/SKILL.md']); // []
+ * checkSkillCount(['plugin/skills/pdf/SKILL.md']); // []
  * @example
  * checkSkillCount([]); // [{ level: 'error', check: 'layout', ... }]
  */
 export function checkSkillCount(skillPaths) {
   if (skillPaths.length === 0) {
-    return [error('layout', 'no SKILL.md found; expected skills/<name>/SKILL.md or SKILL.md at the repo root')];
+    return [error('layout', `no SKILL.md found; expected ${SKILLS_DIR}/<name>/SKILL.md`)];
   }
   if (skillPaths.length > 1) {
     return [warn('layout', `found ${skillPaths.length} skills (${skillPaths.join(', ')}); a skill repo normally holds one, and skill-to-manifest name matching is skipped`)];
@@ -117,23 +127,20 @@ export function checkSkillCount(skillPaths) {
 }
 
 /**
- * Works out which name a SKILL.md must declare, from where it sits.
+ * Works out which name a SKILL.md must declare: its folder's name, as hosts key skills by folder.
  *
- * @param {string} skillPath             `skills/<name>/SKILL.md` or `SKILL.md`.
- * @param {string | undefined} packageName  package.json's `name`, used for the root layout.
+ * @param {string} skillPath  `plugin/skills/<name>/SKILL.md`.
  * @returns {{ name: string | undefined, source: string }}  The expected name
- *   and a phrase naming where it came from, for messages.
+ *   (undefined for a path outside `plugin/skills/<name>/`) and a phrase naming
+ *   where it came from, for messages.
  *
  * @example
- * expectedSkillName('skills/pdf/SKILL.md', 'pdf'); // { name: 'pdf', source: 'its folder name' }
+ * expectedSkillName('plugin/skills/pdf/SKILL.md'); // { name: 'pdf', source: 'its folder name' }
  * @example
- * expectedSkillName('SKILL.md', 'pdf'); // { name: 'pdf', source: 'the package.json name' }
+ * expectedSkillName('SKILL.md'); // { name: undefined, source: 'its folder name' }
  */
-export function expectedSkillName(skillPath, packageName) {
-  const nested = NESTED_SKILL.exec(skillPath);
-  return nested
-    ? { name: nested[1], source: 'its folder name' }
-    : { name: packageName, source: 'the package.json name' };
+export function expectedSkillName(skillPath) {
+  return { name: NESTED_SKILL.exec(skillPath)?.[1], source: 'its folder name' };
 }
 
 /**
@@ -144,7 +151,7 @@ export function expectedSkillName(skillPath, packageName) {
  * @returns {Finding[]}
  *
  * @example
- * checkNameFormat('pdf-tools', 'skills/pdf-tools/SKILL.md'); // []
+ * checkNameFormat('pdf-tools', 'plugin/skills/pdf-tools/SKILL.md'); // []
  * @example
  * checkNameFormat('PDF--Tools', 'SKILL.md'); // one error
  */
@@ -245,18 +252,17 @@ export function checkRequiredFields(data, path) {
 /**
  * Parses and checks one SKILL.md: frontmatter, fields, name and description (length, angle brackets, guard).
  *
- * @param {SkillFile} skill                  The file.
- * @param {string | undefined} packageName  package.json's name, for the root layout.
+ * @param {SkillFile} skill  The file.
  * @returns {{ findings: Finding[], name: string | undefined }}  Findings, and
  *   the declared name when it is usable for manifest matching.
  *
  * @example
- * checkSkill({ path: 'skills/pdf/SKILL.md', text: '---\nname: pdf\ndescription: Reads PDFs. Not for Word.\n---\n' }, 'pdf');
+ * checkSkill({ path: 'plugin/skills/pdf/SKILL.md', text: '---\nname: pdf\ndescription: Reads PDFs. Not for Word.\n---\n' });
  * // { findings: [], name: 'pdf' }
  *
  * @see expectedSkillName
  */
-export function checkSkill(skill, packageName) {
+export function checkSkill(skill) {
   let data;
   try {
     ({ data } = parseFrontmatter(skill.text));
@@ -267,7 +273,7 @@ export function checkSkill(skill, packageName) {
   const required = checkRequiredFields(data, skill.path);
   const hasName = typeof data.name === 'string' && data.name !== '';
   const hasDescription = typeof data.description === 'string';
-  const expected = expectedSkillName(skill.path, packageName);
+  const expected = expectedSkillName(skill.path);
   const mismatch = hasName && expected.name !== undefined && data.name !== expected.name
     ? [error('name', `${skill.path}: name "${data.name}" does not match ${expected.source} "${expected.name}"`)]
     : [];
@@ -290,7 +296,7 @@ export function checkSkill(skill, packageName) {
  *   Findings, and the manifests that parsed to a JSON object.
  *
  * @example
- * parseManifests([{ path: 'plugin.json', host: 'Antigravity', versioned: false, text: '{"name":"x"}' }]);
+ * parseManifests([{ path: 'plugin/plugin.json', host: 'Antigravity', versioned: false, text: '{"name":"x"}' }]);
  * // { findings: [], parsed: [{ ..., json: { name: 'x' } }] }
  */
 export function parseManifests(manifests) {
@@ -334,7 +340,7 @@ export function checkManifestNames(skillName, parsed) {
   const wrong = named.filter(n => n.name !== target).map(n => error('names', skillName === undefined
     ? `${n.path} name "${n.name}" differs from ${named[0].path} name "${target}"`
     : `${n.path} name "${n.name}" does not match the skill name "${target}"`));
-  const entries = parsed.filter(m => m.path.endsWith('marketplace.json')).flatMap(m => {
+  const entries = parsed.filter(m => isMarketplace(m.path)).flatMap(m => {
     const plugins = Array.isArray(m.json.plugins) ? m.json.plugins : [];
     if (plugins.length === 0) return [error('names', `${m.path} lists no plugins`)];
     return target !== undefined && !plugins.some(p => p?.name === target)
@@ -356,7 +362,7 @@ export function checkManifestNames(skillName, parsed) {
  * @example
  * checkVersions([
  *   { path: 'package.json', versioned: true, json: { version: '0.2.0' } },
- *   { path: '.codex-plugin/plugin.json', versioned: true, json: { version: '0.1.0' } },
+ *   { path: 'plugin/.codex-plugin/plugin.json', versioned: true, json: { version: '0.1.0' } },
  * ]); // one error listing both versions
  *
  * @see versionOf
@@ -383,8 +389,8 @@ export function checkVersions(parsed) {
  *   for malformed content, and the entries that are well formed.
  *
  * @example
- * parseChecksums('{"skills/x/references/a.md":"' + 'ab'.repeat(32) + '"}');
- * // { findings: [], listed: { 'skills/x/references/a.md': 'abab...' } }
+ * parseChecksums('{"plugin/skills/x/references/a.md":"' + 'ab'.repeat(32) + '"}');
+ * // { findings: [], listed: { 'plugin/skills/x/references/a.md': 'abab...' } }
  */
 export function parseChecksums(text) {
   let json;
@@ -458,6 +464,123 @@ export function checkReferenceChecksums({ checksumText, referencePaths, hashes }
 }
 
 /**
+ * Checks that the marketplace points hosts at the plugin folder, not the whole repo.
+ *
+ * With `"source": "./"`, Claude Code and Codex copy the entire repo (scripts,
+ * tests, even `.git`) into every user's plugin cache; with `"./plugin"` they
+ * copy only what users need. The entry checked is the one named after the
+ * marketplace, the same entry that carries the version.
+ *
+ * @param {Array<{ path: string, json: any }>} parsed  Parsed manifests; non-marketplaces are ignored.
+ * @returns {Finding[]}  One error per marketplace whose own plugin entry has another source.
+ *
+ * @example
+ * checkMarketplaceSource([{ path: '.claude-plugin/marketplace.json',
+ *   json: { name: 'pdf', plugins: [{ name: 'pdf', source: './plugin' }] } }]); // []
+ * @example
+ * checkMarketplaceSource([{ path: '.claude-plugin/marketplace.json',
+ *   json: { name: 'pdf', plugins: [{ name: 'pdf', source: './' }] } }]); // one error
+ *
+ * @see PLUGIN_SOURCE
+ */
+export function checkMarketplaceSource(parsed) {
+  return parsed.filter(m => isMarketplace(m.path)).flatMap(m => {
+    const plugins = Array.isArray(m.json.plugins) ? m.json.plugins : [];
+    const entry = plugins.find(p => p?.name === m.json.name);
+    // A missing entry is already reported by checkManifestNames.
+    if (entry === undefined || entry.source === PLUGIN_SOURCE) return [];
+    return [error('layout', `${m.path}: plugin "${m.json.name}" has source ${JSON.stringify(entry.source)}; it must be "${PLUGIN_SOURCE}" so hosts install only the plugin folder, not the whole repo`)];
+  });
+}
+
+/**
+ * Normalises line endings so a licence checked out with CRLF on Windows still matches its LF twin.
+ *
+ * @param {string} text  Any text.
+ * @returns {string}  The text with every CR LF replaced by LF.
+ *
+ * @example
+ * toLf('MIT\r\nLicense\r\n'); // 'MIT\nLicense\n'
+ */
+export const toLf = text => text.replaceAll('\r\n', '\n');
+
+/**
+ * Checks that `plugin/LICENSE` exists and matches the root `LICENSE`.
+ *
+ * Users receive only the plugin folder, so the licence must travel inside it;
+ * the root copy stays for GitHub's licence detection. Two copies drift unless
+ * something compares them.
+ *
+ * @param {Pick<RepoSnapshot, 'rootLicense' | 'pluginLicense'>} licenses  Both files' text; null (or omitted) when absent.
+ * @returns {Finding[]}  An error for each missing copy, or one when they differ beyond line endings.
+ *
+ * @example
+ * checkPluginLicense({ rootLicense: 'MIT\n', pluginLicense: 'MIT\r\n' }); // []
+ * @example
+ * checkPluginLicense({ rootLicense: 'MIT\n', pluginLicense: null }); // one error
+ *
+ * @see toLf
+ */
+export function checkPluginLicense({ rootLicense = null, pluginLicense = null }) {
+  const missing = [
+    ...(rootLicense === null ? [error('license', 'LICENSE is missing at the repo root; GitHub reads the licence from there')] : []),
+    ...(pluginLicense === null ? [error('license', `${PLUGIN_LICENSE} is missing; copy LICENSE there, since users receive only the ${PLUGIN_ROOT}/ folder`)] : []),
+  ];
+  if (missing.length > 0) return missing;
+  return toLf(rootLicense) === toLf(pluginLicense)
+    ? []
+    : [error('license', `${PLUGIN_LICENSE} differs from LICENSE; copy LICENSE over it so users get the same licence`)];
+}
+
+/**
+ * Tells why a path under `plugin/` looks like a development file, or returns undefined when it does not.
+ *
+ * `package.json` and `src/` are flagged only at the plugin root, where repo
+ * tooling would land by mistake; a skill may bundle its own scripts deeper
+ * down. `node_modules` and test files are flagged anywhere.
+ *
+ * @param {string} path  Repo-relative path starting with `plugin/`; folders end in `/`.
+ * @returns {string | undefined}  A short reason, or undefined for a file users need.
+ *
+ * @example
+ * devFileReason('plugin/package.json'); // 'package.json belongs at the repo root'
+ * @example
+ * devFileReason('plugin/skills/pdf/SKILL.md'); // undefined
+ */
+export function devFileReason(path) {
+  const inside = path.slice(PLUGIN_ROOT.length + 1);
+  const segments = inside.split('/');
+  const base = segments.filter(s => s !== '').at(-1) ?? '';
+  if (inside === 'package.json') return 'package.json belongs at the repo root';
+  if (segments[0] === 'src' && segments.length > 1) return 'src/ belongs at the repo root';
+  if (segments.slice(0, -1).includes('node_modules') || base === 'node_modules') return 'node_modules/ is never shipped';
+  if (/\.test\./.test(base)) return 'tests belong at the repo root';
+  return undefined;
+}
+
+/**
+ * Warns about development files under `plugin/`, which every user would download into their plugin cache.
+ *
+ * @param {string[]} pluginPaths  Repo-relative paths under `plugin/`, folders ending in `/`.
+ * @returns {Finding[]}  One warning per development file.
+ *
+ * @example
+ * checkPluginDevFiles(['plugin/skills/pdf/SKILL.md', 'plugin/LICENSE']); // []
+ * @example
+ * checkPluginDevFiles(['plugin/src/x.mjs', 'plugin/skills/pdf/a.test.mjs']); // two warnings
+ *
+ * @see devFileReason
+ */
+export function checkPluginDevFiles(pluginPaths) {
+  return pluginPaths.flatMap(path => {
+    const reason = devFileReason(path);
+    return reason === undefined
+      ? []
+      : [warn('plugin-contents', `${path}: ${reason}; everything under ${PLUGIN_ROOT}/ is copied to every user's plugin cache`)];
+  });
+}
+
+/**
  * Serialises a checksum map as the checksum file's text: sorted keys, two-space JSON, trailing newline.
  *
  * @param {Record<string, string>} digests  Path -> sha256 hex.
@@ -482,21 +605,22 @@ export function serializeChecksums(digests) {
  */
 export function runChecks(snapshot) {
   const manifests = parseManifests(snapshot.manifests);
-  const rawPackageName = manifests.parsed.find(m => m.path === 'package.json')?.json.name;
-  const packageName = typeof rawPackageName === 'string' ? rawPackageName : undefined;
-  const skills = snapshot.skills.map(s => checkSkill(s, packageName));
-  // Manifests are compared with the folder name when there is one: a wrong
-  // SKILL.md name is already reported, and blaming every manifest for it too
-  // would bury the real problem.
+  const skills = snapshot.skills.map(s => checkSkill(s));
+  // Manifests are compared with the folder name: a wrong SKILL.md name is
+  // already reported, and blaming every manifest for it too would bury the
+  // real problem.
   const skillName = skills.length === 1
-    ? expectedSkillName(snapshot.skills[0].path, packageName).name ?? skills[0].name
+    ? expectedSkillName(snapshot.skills[0].path).name ?? skills[0].name
     : undefined;
   return [
     ...checkSkillCount(snapshot.skills.map(s => s.path)),
     ...skills.flatMap(s => s.findings),
     ...manifests.findings,
     ...checkManifestNames(skillName, manifests.parsed),
+    ...checkMarketplaceSource(manifests.parsed),
     ...checkVersions(manifests.parsed),
     ...checkReferenceChecksums(snapshot),
+    ...checkPluginLicense(snapshot),
+    ...checkPluginDevFiles(snapshot.pluginPaths),
   ];
 }

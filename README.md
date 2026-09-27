@@ -14,31 +14,37 @@ A GitHub template for one [Agent Skill](https://agentskills.io) that installs in
    npm run init-skill -- <name> "<one-sentence description>"
    ```
 
-   `init-skill` renames `skills/skill-template/` to `skills/<name>/`, then rewrites the name, description and GitHub URLs in SKILL.md, every manifest and `package.json`. It names the Claude marketplace after the skill, resets every version to `0.1.0`, resets `CHANGELOG.md` if there is one, and turns this README into the skill's README. It takes the repo from `git remote get-url origin`; pass `--repo owner/repo` to override that. It refuses to run a second time unless you pass `--force`.
+   `init-skill` renames `plugin/skills/skill-template/` to `plugin/skills/<name>/`, then rewrites the name, description and GitHub URLs in SKILL.md, every manifest and `package.json`. It names the Claude marketplace after the skill, resets every version to `0.1.0`, resets `CHANGELOG.md` if there is one, and turns this README into the skill's README. It takes the repo from `git remote get-url origin`; pass `--repo owner/repo` to override that. It refuses to run a second time unless you pass `--force`.
 
    Names must be lowercase letters, digits and single hyphens, 1 to 64 characters, and must not contain `claude` or `anthropic`.
-3. Edit `skills/<name>/SKILL.md`. Put the instructions in the body. In the `description`, name the phrases that should trigger the skill, and end it with a **guard sentence** ("Not for …") listing things people say that should *not* trigger it. Keep `<` and `>` out of the description: Claude Code rejects a skill whose description contains them. Put long material in optional reference files under `skills/<name>/references/` and run `npm run checksums` after changing one.
-4. Check your work: `npm test` runs the repo's tests and `npm run validate` checks the skill and its manifests.
+3. Edit `plugin/skills/<name>/SKILL.md`. Put the instructions in the body. In the `description`, name the phrases that should trigger the skill, and end it with a **guard sentence** ("Not for …") listing things people say that should *not* trigger it. Keep `<` and `>` out of the description: Claude Code rejects a skill whose description contains them. Put long material in optional reference files under `plugin/skills/<name>/references/` and run `npm run checksums` after changing one.
+4. Check your work: `npm test` runs the repo's tests and `npm run validate` checks the skill and its manifests. To try the skill in Claude Code without installing it, run `claude --plugin-dir ./plugin` from the repo root.
 5. Run `npm run release` to cut a version, then work through [RELEASING.md](RELEASING.md).
 
 There are no npm dependencies. You only need Node 22 or later.
+
+### Why the skill lives under `plugin/`
+
+Everything a user installs lives in `plugin/`: the skill, the host manifests and a copy of the licence. The marketplace points hosts there with `"source": "./plugin"`. Claude Code and Codex copy the whole plugin source into every user's plugin cache. With the source at the repo root, that meant 44 files (scripts, tests, `.github/`, and for Codex even `.git`) where the user needs 4. Development files stay at the repo root, and `npm run validate` warns if any end up under `plugin/`.
 
 ### What each file is for
 
 | File | Purpose |
 |---|---|
-| `skills/skill-template/SKILL.md` | The skill itself: frontmatter (`name`, `description`) and instructions. Put optional reference files beside it in `references/`. |
-| `.claude-plugin/plugin.json` | Claude Code plugin manifest. |
-| `.claude-plugin/marketplace.json` | Claude Code marketplace, named after the skill, listing this repo as its one plugin. |
-| `.codex-plugin/plugin.json` | Codex plugin manifest. |
-| `plugin.json` | Antigravity plugin manifest. It has no version field. |
+| `plugin/` | Everything a user installs, and nothing else. |
+| `plugin/skills/skill-template/SKILL.md` | The skill itself: frontmatter (`name`, `description`) and instructions. Put optional reference files beside it in `references/`. |
+| `plugin/.claude-plugin/plugin.json` | Claude Code plugin manifest. |
+| `plugin/.codex-plugin/plugin.json` | Codex plugin manifest. Its `"skills": "./skills/"` must stay a real subfolder; Codex ignores `"./"`. |
+| `plugin/plugin.json` | Antigravity plugin manifest. It has no version field. |
+| `plugin/LICENSE` | A copy of `LICENSE`, so the licence travels with the plugin. `npm run validate` fails if the two differ. |
+| `.claude-plugin/marketplace.json` | Claude Code marketplace (Codex reads it too), named after the skill. Its one plugin entry has `"source": "./plugin"`. |
 | `package.json` | Holds the repo's npm scripts, and a version that is kept in step with the manifests. It is never published to npm. |
 | `src/scripts/init-skill.mjs` | Turns the template into your skill (step 2). |
-| `src/scripts/validate.mjs` | `npm run validate`: checks SKILL.md and that all versions agree. |
+| `src/scripts/validate.mjs` | `npm run validate`: checks SKILL.md, that all versions agree, that the marketplace points at `plugin/`, that `plugin/LICENSE` matches, and warns about dev files under `plugin/`. |
 | `src/scripts/checksums.mjs` | `npm run checksums`: pins the skill's reference files by checksum, so every edit to one is deliberate. |
 | `src/scripts/release.mjs` | `npm run release`: bumps every manifest's version together. |
 | `src/scripts/lint-commits.mjs` | Fails on commits without a Conventional Commits header, since `release` reads versions from those headers. |
-| `src/scripts/lib/manifests.mjs` | The list of manifests and where each keeps its version. |
+| `src/scripts/lib/manifests.mjs` | The repo layout: the list of manifests, where each keeps its version, and where `plugin/` and its skills live. |
 | `src/scripts/lib/rename.mjs` | The rename rules `init-skill` applies. |
 | `src/scripts/lib/frontmatter.mjs` | Reads SKILL.md frontmatter. |
 | `src/scripts/lib/conventional.mjs`, `semver.mjs` | Commit-header parsing and version arithmetic for `release`. |
@@ -48,7 +54,7 @@ There are no npm dependencies. You only need Node 22 or later.
 | `CHANGELOG.md` | Release notes; `init-skill` resets it to an empty Unreleased section. |
 | `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` | Contributor guidance. |
 | `RELEASING.md` | A release checklist. Add each lesson to it when you learn it. |
-| `LICENSE` | MIT. |
+| `LICENSE` | MIT. Stays at the root so GitHub detects the licence. |
 | `.gitignore` | Keeps `build/`, `node_modules/` and OS clutter out of git. |
 
 ### Why there is no shared CI
@@ -78,36 +84,53 @@ Install as a plugin:
 /plugin install <name>@<name>
 ```
 
-Updates arrive through `/plugin update` when the version changes.
+Updates arrive through `/plugin update` when the version changes. Only the `plugin/` folder is copied into your plugin cache.
+
+Adding the marketplace clones the whole repo. To fetch only the two folders the install needs, add it from a terminal instead (**unverified**: not yet tested against a GitHub repo):
+
+```sh
+claude plugin marketplace add <repo> --sparse .claude-plugin plugin
+```
 
 Or copy the skill folder into `~/.claude/skills/<name>/` for yourself, or into `.claude/skills/<name>/` for one project:
 
 ```sh
 git clone https://github.com/<repo>.git <name>
-cp -r <name>/skills/<name> ~/.claude/skills/
+cp -r <name>/plugin/skills/<name> ~/.claude/skills/
 ```
 
 ### Codex
 
-Copy the skill folder into `~/.agents/skills/<name>/` for yourself, or into `.agents/skills/<name>/` for one project:
+Install as a plugin. Codex reads the same marketplace file as Claude Code:
+
+```sh
+codex plugin marketplace add <repo>
+codex plugin add <name>@<name>
+```
+
+To fetch only the folders the install needs (**unverified**: not yet tested against a GitHub repo):
+
+```sh
+codex plugin marketplace add <repo> --sparse .claude-plugin --sparse plugin
+```
+
+Or copy the skill folder into `~/.agents/skills/<name>/` for yourself, or into `.agents/skills/<name>/` for one project:
 
 ```sh
 git clone https://github.com/<repo>.git <name>
-cp -r <name>/skills/<name> ~/.agents/skills/
+cp -r <name>/plugin/skills/<name> ~/.agents/skills/
 ```
-
-The repo also ships a Codex plugin manifest, `.codex-plugin/plugin.json`.
 
 ### Antigravity
 
-Install as a plugin. `agy` installs from local paths only, so clone the repo first:
+Install as a plugin. `agy` installs from local paths only, so clone the repo first and install its `plugin` folder:
 
 ```sh
 git clone https://github.com/<repo>.git <name>
-agy plugin install ./<name>
+agy plugin install ./<name>/plugin
 ```
 
-Or copy the skill folder into `.agents/skills/<name>/` in a workspace, or into `~/.gemini/config/skills/<name>/` globally. Older installs use `~/.gemini/antigravity/skills/` instead.
+Or copy `plugin/skills/<name>` into `.agents/skills/` in a workspace, or into `~/.gemini/config/skills/` globally. Older installs use `~/.gemini/antigravity/skills/` instead.
 
 ### Gemini CLI (untested)
 
@@ -115,14 +138,14 @@ Or copy the skill folder into `.agents/skills/<name>/` in a workspace, or into `
 gemini skills install https://github.com/<repo> --consent
 ```
 
-Or copy the skill folder into `~/.gemini/skills/<name>/` or `~/.agents/skills/<name>/`.
+Or copy `plugin/skills/<name>` into `~/.gemini/skills/` or `~/.agents/skills/`.
 
 ### Windows
 
 In PowerShell, replace `cp -r` with `Copy-Item -Recurse`, and write `~` as `$HOME`:
 
 ```powershell
-Copy-Item -Recurse <name>\skills\<name> $HOME\.claude\skills\
+Copy-Item -Recurse <name>\plugin\skills\<name> $HOME\.claude\skills\
 ```
 
 ### Calling it by name

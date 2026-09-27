@@ -1,10 +1,10 @@
 /**
- * Knows every manifest this repo ships, and where each keeps its version.
+ * Knows the repo layout: every manifest it ships, where each keeps its version, and where the plugin and skills live.
  *
  * Every host reads its own manifest, and Claude Code's `/plugin update` does
  * nothing unless the version moves, so all versioned manifests must agree.
- * This module is the one place that lists them; the validator and the release
- * script both read it.
+ * This module is the one place that lists them; the validator, init-skill,
+ * checksums and the release script all read it.
  *
  * @see ../validate.mjs
  * @see ../release.mjs
@@ -23,14 +23,60 @@ import { join } from 'node:path';
  *   (Antigravity's plugin.json); such files are checked as JSON only.
  */
 
+/**
+ * The folder, relative to the repo root, that holds everything a user installs.
+ *
+ * The marketplace points hosts at this folder (`"source": "./plugin"`), and
+ * hosts copy the whole plugin source into their cache, so only the skill, the
+ * plugin manifests and the licence belong here. Development files (scripts,
+ * tests, package.json, .github) stay at the repo root, out of users' caches.
+ *
+ * @example
+ * `${PLUGIN_ROOT}/skills/docket/SKILL.md`; // 'plugin/skills/docket/SKILL.md'
+ */
+export const PLUGIN_ROOT = 'plugin';
+
+/**
+ * The folder, relative to the repo root, that holds one subfolder per skill.
+ *
+ * Codex accepts only a real subdirectory as its `skills` path, so skills sit
+ * at `plugin/skills/<name>/SKILL.md`, never at the plugin root.
+ *
+ * @example
+ * `${SKILLS_DIR}/docket/references/spec.md`; // 'plugin/skills/docket/references/spec.md'
+ */
+export const SKILLS_DIR = `${PLUGIN_ROOT}/skills`;
+
+/** Where the Claude Code marketplace lives: at the repo root, outside the plugin, so it can point into it. */
+export const MARKETPLACE_PATH = '.claude-plugin/marketplace.json';
+
+/** Where Claude Code's plugin manifest lives; it also names the skill for init-skill. */
+export const CLAUDE_PLUGIN_PATH = `${PLUGIN_ROOT}/.claude-plugin/plugin.json`;
+
 /** @type {readonly ManifestSpec[]} */
 export const MANIFESTS = Object.freeze([
-  { path: '.claude-plugin/plugin.json',      host: 'Claude Code',        versioned: true },
-  { path: '.claude-plugin/marketplace.json', host: 'Claude Code',        versioned: true },
-  { path: '.codex-plugin/plugin.json',       host: 'Codex',              versioned: true },
-  { path: 'plugin.json',                     host: 'Antigravity',        versioned: false },
-  { path: 'package.json',                    host: 'npm (repo tooling)', versioned: true },
+  { path: CLAUDE_PLUGIN_PATH,                         host: 'Claude Code',        versioned: true },
+  { path: MARKETPLACE_PATH,                           host: 'Claude Code',        versioned: true },
+  { path: `${PLUGIN_ROOT}/.codex-plugin/plugin.json`, host: 'Codex',              versioned: true },
+  { path: `${PLUGIN_ROOT}/plugin.json`,               host: 'Antigravity',        versioned: false },
+  { path: 'package.json',                             host: 'npm (repo tooling)', versioned: true },
 ]);
+
+/**
+ * Tells whether a repo-relative path is a Claude marketplace rather than a plugin manifest.
+ *
+ * Marketplaces list plugins instead of being one, so their name and version
+ * live in a plugin entry; every rule that treats them differently asks here.
+ *
+ * @param {string} path  A manifest's repo-relative path.
+ * @returns {boolean}  True for any `marketplace.json`.
+ *
+ * @example
+ * isMarketplace('.claude-plugin/marketplace.json'); // true
+ * @example
+ * isMarketplace('plugin/.claude-plugin/plugin.json'); // false
+ */
+export const isMarketplace = path => path.endsWith('marketplace.json');
 
 /**
  * Reads the version a parsed manifest declares.
@@ -43,13 +89,14 @@ export const MANIFESTS = Object.freeze([
  * @returns {string | undefined}  The version, or undefined if absent.
  *
  * @example
- * versionOf('.codex-plugin/plugin.json', { version: '0.1.0' }); // '0.1.0'
+ * versionOf('plugin/.codex-plugin/plugin.json', { version: '0.1.0' }); // '0.1.0'
  * @example
  * versionOf('.claude-plugin/marketplace.json',
  *   { name: 'docket', plugins: [{ name: 'docket', version: '0.2.0' }] }); // '0.2.0'
+ * @see isMarketplace
  */
 export function versionOf(path, json) {
-  if (path.endsWith('marketplace.json')) {
+  if (isMarketplace(path)) {
     return json?.plugins?.find(p => p?.name === json?.name)?.version;
   }
   return json?.version;
@@ -71,7 +118,7 @@ export function versionOf(path, json) {
  * // { name: 'x', version: '0.2.0' }
  */
 export function withVersion(path, json, version) {
-  if (path.endsWith('marketplace.json')) {
+  if (isMarketplace(path)) {
     const index = json.plugins?.findIndex(p => p?.name === json.name) ?? -1;
     if (index < 0) {
       throw new Error(`${path}: no plugin entry named "${json.name}" to version`);

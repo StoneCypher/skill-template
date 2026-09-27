@@ -11,13 +11,13 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   CHANGELOG_HEADER, parseLog, formatEntry, groupCommits, renderSectionBody,
   insertRelease, agreedVersion, planRelease, nextCommands, parseCli, localIsoDate, main,
 } from './release.mjs';
 import { parseCommit } from './lib/conventional.mjs';
-import { MANIFESTS, versionOf } from './lib/manifests.mjs';
+import { MANIFESTS, isMarketplace, versionOf } from './lib/manifests.mjs';
 
 /** Identity for commits in throwaway repos, so tests need no git config. */
 const GIT_ENV = Object.freeze({
@@ -38,6 +38,20 @@ function git(cwd, ...args) {
 }
 
 /**
+ * Builds a minimal manifest for a throwaway repo, in the shape its path calls for.
+ *
+ * @param {string} path        Repo-relative manifest path from MANIFESTS.
+ * @param {boolean} versioned  Whether the format carries a version.
+ * @param {string} version     The version to give versioned manifests.
+ * @returns {object}  The manifest JSON.
+ */
+function manifestBody(path, versioned, version) {
+  if (isMarketplace(path)) return { name: 'demo', plugins: [{ name: 'demo', source: './plugin', version }] };
+  if (!versioned) return { name: 'demo' };
+  return path === 'package.json' ? { name: 'demo', version, private: true } : { name: 'demo', version };
+}
+
+/**
  * Creates a repo with every versioned manifest at one version and a changelog.
  *
  * @param {string} version  Starting version for all manifests.
@@ -46,17 +60,10 @@ function git(cwd, ...args) {
 async function makeRepo(version) {
   const dir = await mkdtemp(join(tmpdir(), 'release-test-'));
   git(dir, 'init', '-q');
-  const bodies = {
-    '.claude-plugin/plugin.json': { name: 'demo', version },
-    '.claude-plugin/marketplace.json': { name: 'demo', plugins: [{ name: 'demo', version }] },
-    '.codex-plugin/plugin.json': { name: 'demo', version },
-    'plugin.json': { name: 'demo' },
-    'package.json': { name: 'demo', version, private: true },
-  };
-  await mkdir(join(dir, '.claude-plugin'));
-  await mkdir(join(dir, '.codex-plugin'));
-  await Promise.all(Object.entries(bodies).map(([path, json]) =>
-    writeFile(join(dir, path), `${JSON.stringify(json, null, 2)}\n`)));
+  await Promise.all(MANIFESTS.map(async ({ path, versioned }) => {
+    await mkdir(dirname(join(dir, path)), { recursive: true });
+    await writeFile(join(dir, path), `${JSON.stringify(manifestBody(path, versioned, version), null, 2)}\n`);
+  }));
   await writeFile(join(dir, 'CHANGELOG.md'), `${CHANGELOG_HEADER}\n- A hand-written note.\n`);
   git(dir, 'add', '.');
   git(dir, 'commit', '-q', '-m', 'chore: initial');
@@ -234,7 +241,7 @@ test('end to end: an untagged repo releases its starting version as-is (located 
 test('end to end: disagreeing manifests stop the release before anything is written', async () => {
   const dir = await makeRepo('0.1.0');
   try {
-    await writeFile(join(dir, '.codex-plugin/plugin.json'), '{ "name": "demo", "version": "0.0.9" }\n');
+    await writeFile(join(dir, 'plugin/.codex-plugin/plugin.json'), '{ "name": "demo", "version": "0.0.9" }\n');
     await assert.rejects(main(['--write'], dir), /must agree/);
     assert.deepEqual(await versionsIn(dir), ['0.1.0', '0.1.0', '0.0.9', '0.1.0']);
   } finally {

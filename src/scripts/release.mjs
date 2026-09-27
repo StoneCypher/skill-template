@@ -224,7 +224,7 @@ export function insertRelease(changelog, version, date, groups) {
  *
  * @example
  * agreedVersion([{ path: 'package.json', version: '0.1.0' },
- *   { path: '.codex-plugin/plugin.json', version: '0.1.0' }]); // '0.1.0'
+ *   { path: 'plugin/.codex-plugin/plugin.json', version: '0.1.0' }]); // '0.1.0'
  */
 export function agreedVersion(found) {
   const distinct = [...new Set(found.map(f => f.version))];
