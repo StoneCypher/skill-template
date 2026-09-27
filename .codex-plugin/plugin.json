@@ -1,0 +1,15 @@
+{
+  "name": "skill-template",
+  "version": "0.1.0",
+  "description": "One-sentence description of what this skill does.",
+  "author": {
+    "name": "John Haugeland",
+    "email": "stonecypher@gmail.com",
+    "url": "https://github.com/StoneCypher"
+  },
+  "homepage": "https://github.com/StoneCypher/skill-template#readme",
+  "repository": "https://github.com/StoneCypher/skill-template",
+  "license": "MIT",
+  "keywords": ["agent-skill", "skill"],
+  "skills": "./skills/"
+}

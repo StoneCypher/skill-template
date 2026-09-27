@@ -1,0 +1,68 @@
+# Runs the unit tests and the skill validator on pushes to main and on every
+# pull request. Other branches are covered by their pull request, so they
+# don't run twice.
+#
+# `npm run validate` checks the SKILL.md frontmatter, that every manifest
+# names the skill and carries the same semver version, and that vendored
+# reference files match .github/reference-checksums.json. The repo has no npm
+# dependencies, so there is no install step.
+#
+# The `gate` job is the one required status check (see .github/ruleset.json).
+# It always reports, even when the jobs it needs fail or are cancelled, so
+# branch protection never waits on a check that was skipped. Keep this
+# workflow free of paths / paths-ignore filters for the same reason.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Validate skill
+        run: npm run validate
+
+  gate:
+    name: gate
+    needs: [test]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Fail unless every needed job succeeded
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: |
+          echo "A required job did not succeed: ${{ join(needs.*.result, ', ') }}"
+          exit 1
+
+      - name: All needed jobs succeeded
+        run: echo "All required jobs succeeded."
