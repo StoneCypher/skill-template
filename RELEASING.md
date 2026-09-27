@@ -5,7 +5,10 @@ Things learned while releasing skills from this template. Add each lesson when i
 ## Before the first release
 
 - [ ] **Test the install path in every host** (Claude Code, Codex, Antigravity, Gemini CLI). Where SKILL.md must sit for all of them to work from one repo is not yet verified.
-- [ ] **Keep SKILL.md at `skills/<name>/SKILL.md`, never at the repo root.** Tested 2026-09-26 on Claude Code 2.1.283 and Codex 0.144.1. The root layout works everywhere except a Codex marketplace install, which reports "installed, enabled" and then loads nothing. `skills/<name>/` works in every Claude and Codex install path. It also lets a user copy just that one folder, where the root layout forces them to copy the whole repo, `src/`, `.github/` and tests included.
+- [ ] **Keep SKILL.md in a `skills/<name>/` folder (now `plugin/skills/<name>/SKILL.md`), never at the repo root.** Tested 2026-09-26 on Claude Code 2.1.283 and Codex 0.144.1. The root layout works everywhere except a Codex marketplace install, which reports "installed, enabled" and then loads nothing. `skills/<name>/` works in every Claude and Codex install path. It also lets a user copy just that one folder, where the root layout forces them to copy the whole repo, `src/`, `.github/` and tests included.
+- [ ] **Keep everything a user installs under `plugin/`, and dev files out of it.** With the marketplace `source` at the repo root, both hosts copied the whole repo into their plugin cache: 44 files and about 267 KB, where the user needs 4 files. Codex also copied `.git`, and local installs also copied gitignored folders. With `"source": "./plugin"`, the cache holds only the manifests and the skill (tested 2026-09-27). A GitHub marketplace add still clones the whole repo unless the user passes `--sparse .claude-plugin plugin`.
+- [ ] **Codex only accepts a skills path that is a real subdirectory.** It ignores `"skills": "./"`, `"."` and a path to a file. That's why the skill sits at `plugin/skills/<name>/`, never at a plugin root.
+- [ ] **A local-path marketplace add doesn't copy anything.** The marketplace is your working tree, but the install cache is a snapshot per version, so bump the version or reinstall to see edits. Before a release, test-install from a clean clone.
 - [ ] **Verify what actually loaded; install messages can't be trusted.**
   - Claude: `claude plugin details <plugin>@<marketplace>` lists a plugin's skills without calling the model.
   - Codex: `codex debug prompt-input`, run in a neutral folder, shows whether `plugin:skill` reached the prompt.
@@ -24,7 +27,7 @@ Things learned while releasing skills from this template. Add each lesson when i
 - [ ] **Antigravity is not Gemini CLI.** They're separate Google products with different folders and install mechanisms. Checked against https://antigravity.google/docs/skills and /docs/plugins on 2026-09-26:
   - Workspace skills live in `.agents/skills/<name>/`, the same folder Codex uses. The older `.agent/skills/` (singular) still works, and many blog posts still cite it.
   - Global skills live in `~/.gemini/config/skills/<name>/` for the IDE and 2.0. `~/.gemini/antigravity/skills/` is legacy. The Antigravity CLI uses `~/.gemini/antigravity-cli/skills/`.
-  - Plugins are installed with `agy plugin install <local path>`, from local paths only (no git URL). A plugin has a bare `plugin.json` at its root (not in a dot-folder) and `skills/<name>/SKILL.md`.
+  - Plugins are installed with `agy plugin install <local path>`, from local paths only (no git URL). A plugin has a bare `plugin.json` at its root (not in a dot-folder) and `skills/<name>/SKILL.md`. In this template the plugin root is `plugin/`, so point `agy` at `./plugin`.
 - [ ] **Check the name for collisions.**
   - Search `anthropics/skills` and `anthropics/claude-plugins-official`'s `marketplace.json`.
   - Search every SKILL.md on GitHub with `gh search code "<name>" --filename SKILL.md`.
@@ -43,8 +46,10 @@ Things learned while releasing skills from this template. Add each lesson when i
 
 ## Changing the template itself
 
-- [ ] **Run `npm test` on an initialized copy, not just on the template.** Tests that read `skills/skill-template/` pass on the template and break in every skill made from it (found 2026-09-26).
+- [ ] **Run `npm test` on an initialized copy, not just on the template.** Tests that read `plugin/skills/skill-template/` pass on the template and break in every skill made from it (found 2026-09-26).
 - [ ] **`node --test <folder>` changed meaning in Node 21.** It now treats the folder as a module and fails with MODULE_NOT_FOUND. Pass a glob such as `"src/scripts/**/*.test.mjs"`, and run CI on the Node versions users actually have.
+- [ ] **`node --test` exits 0 when its glob matches nothing,** and an absolute glob on Windows matches nothing. CI therefore fails the run unless the spec summary shows at least one test. Run globs relative to the repo root.
+- [ ] **`git mv` leaves the emptied source folder on disk.** Git ignores it, but delete it by hand so it doesn't confuse anyone.
 
 ## Right after creating the repo from the template
 

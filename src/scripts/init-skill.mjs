@@ -2,7 +2,7 @@
 /**
  * Turns a fresh copy of the template into a named skill: `npm run init-skill -- <name> "<description>"`.
  *
- * Renames the skill folder, rewrites names, descriptions and URLs in SKILL.md,
+ * Renames the skill folder under plugin/skills/, rewrites names, descriptions and URLs in SKILL.md,
  * every manifest, package.json and the README, resets versions to 0.1.0, and
  * resets CHANGELOG.md. All new file contents are computed before anything is
  * written, so a validation error leaves the repo untouched. The rewrite rules
@@ -22,7 +22,7 @@ import { execFileSync } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { MANIFESTS, withVersion } from './lib/manifests.mjs';
+import { CLAUDE_PLUGIN_PATH, MANIFESTS, SKILLS_DIR, withVersion } from './lib/manifests.mjs';
 import {
   TEMPLATE_NAME, TEMPLATE_REPO, checkOptions, normalizeRepo,
   renameManifest, renameReadme, renameSkillMd, resetChangelog,
@@ -35,19 +35,18 @@ export const INITIAL_VERSION = '0.1.0';
 const DEFAULT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 
 /**
- * Where a skill's folder sits, relative to the repo root.
- *
- * The one place the layout is encoded: if SKILL.md moves to the repo root,
- * return '' here and the folder rename is skipped.
+ * Where a skill's folder sits, relative to the repo root: inside the plugin folder users install.
  *
  * @param {string} name  Skill name.
- * @returns {string}  Repo-relative folder, e.g. 'skills/docket'.
+ * @returns {string}  Repo-relative folder in the platform's path style, e.g. 'plugin/skills/docket'.
  *
  * @example
- * skillDir('docket'); // 'skills/docket'
+ * skillDir('docket'); // 'plugin/skills/docket' ('plugin\\skills\\docket' on Windows)
+ *
+ * @see SKILLS_DIR
  */
 export function skillDir(name) {
-  return join('skills', name);
+  return join(SKILLS_DIR, name);
 }
 
 /** Usage text shown by --help and on bad arguments. */
@@ -201,6 +200,41 @@ export function planManifests(originals, options, oldRepo) {
 }
 
 /**
+ * Reads every manifest listed in MANIFESTS that exists, so the rename covers all of them.
+ *
+ * @param {string} root  Repo root.
+ * @returns {Promise<Map<string, string>>}  Repo-relative path to contents; missing files are absent.
+ *
+ * @example
+ * await readManifests('/repo'); // Map { 'plugin/.claude-plugin/plugin.json' => '{...}', ... }
+ *
+ * @see MANIFESTS
+ */
+export async function readManifests(root) {
+  const texts = await Promise.all(MANIFESTS.map(({ path }) => readOptional(join(root, path))));
+  return new Map(MANIFESTS.flatMap(({ path }, i) => (texts[i] === undefined ? [] : [[path, texts[i]]])));
+}
+
+/**
+ * Picks out and parses the Claude plugin manifest, which records the skill's current name, repository and author.
+ *
+ * @param {Map<string, string>} originals  Manifest contents from {@link readManifests}.
+ * @returns {any}  The parsed Claude plugin manifest.
+ * @throws {Error} When the Claude plugin manifest is missing.
+ * @throws {SyntaxError} When it is not valid JSON.
+ *
+ * @example
+ * identityManifest(new Map([['plugin/.claude-plugin/plugin.json', '{"name":"skill-template"}']])).name; // 'skill-template'
+ *
+ * @see CLAUDE_PLUGIN_PATH
+ */
+export function identityManifest(originals) {
+  const text = originals.get(CLAUDE_PLUGIN_PATH);
+  if (text === undefined) throw new Error(`No ${CLAUDE_PLUGIN_PATH}; init-skill reads the current skill name from it.`);
+  return JSON.parse(text);
+}
+
+/**
  * Initializes the skill in a repo: the whole CLI, minus process handling.
  *
  * @param {object} [params]
@@ -208,8 +242,8 @@ export function planManifests(originals, options, oldRepo) {
  * @param {string} [params.root]    Repo root; defaults to the repo holding this script.
  * @param {(root: string) => string | undefined} [params.origin]  Reads the origin URL; injectable for tests.
  * @returns {Promise<string>}  The report to print.
- * @throws {Error} On bad arguments, an invalid name or description, a second run without --force,
- *   or a target folder that already exists. Nothing is written in those cases.
+ * @throws {Error} On bad arguments, a missing Claude plugin manifest, an invalid name or description,
+ *   a second run without --force, or a target folder that already exists. Nothing is written in those cases.
  *
  * @example
  * await main({ argv: ['docket', 'Tracks open tasks in a docket file.'] });
@@ -219,7 +253,8 @@ export async function main({ argv = process.argv.slice(2), root = DEFAULT_ROOT, 
   if (args.help) return USAGE;
   if (!args.name || !args.description) throw new Error(`Missing <name> or "<description>".\n\n${USAGE}`);
 
-  const claude = JSON.parse(await readFile(join(root, '.claude-plugin/plugin.json'), 'utf8'));
+  const originals = await readManifests(root);
+  const claude = identityManifest(originals);
   const oldName = claude.name;
   if (oldName !== TEMPLATE_NAME && !args.force) {
     throw new Error(`This repo was already initialized as "${oldName}". Pass --force to rename it again.`);
@@ -234,11 +269,6 @@ export async function main({ argv = process.argv.slice(2), root = DEFAULT_ROOT, 
   if (!(await exists(join(oldDir, 'SKILL.md')))) throw new Error(`No SKILL.md at ${oldDir}.`);
   if (moving && (await exists(newDir))) throw new Error(`${newDir} already exists; remove it or choose another name.`);
 
-  const originals = new Map();
-  for (const { path } of MANIFESTS) {
-    const text = await readOptional(join(root, path));
-    if (text !== undefined) originals.set(path, text);
-  }
   const readme = await readOptional(join(root, 'README.md'));
   const changelog = await readOptional(join(root, 'CHANGELOG.md'));
 

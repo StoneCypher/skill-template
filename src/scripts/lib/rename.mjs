@@ -9,6 +9,8 @@
  * @see ./manifests.mjs
  */
 
+import { isMarketplace } from './manifests.mjs';
+
 /** The skill name the template ships with; init-skill replaces it. */
 export const TEMPLATE_NAME = 'skill-template';
 
@@ -284,7 +286,7 @@ function repositoryLike(current, url) {
  * @throws {Error} When a marketplace has no plugin entry for the old name.
  *
  * @example
- * renameManifest('.codex-plugin/plugin.json',
+ * renameManifest('plugin/.codex-plugin/plugin.json',
  *   { name: 'skill-template', description: 'x', repository: 'https://github.com/StoneCypher/skill-template' },
  *   { oldName: 'skill-template', newName: 'docket', description: 'Tracks tasks.', repo: 'StoneCypher/docket' });
  * // { name: 'docket', description: 'Tracks tasks.', repository: 'https://github.com/StoneCypher/docket' }
@@ -292,12 +294,12 @@ function repositoryLike(current, url) {
  */
 export function renameManifest(path, json, options, oldRepo = TEMPLATE_REPO) {
   const url = `https://github.com/${options.repo}`;
-  const isMarketplace = path.endsWith('marketplace.json');
+  const marketplace = isMarketplace(path);
   const base = { ...json, name: options.newName };
-  if (!isMarketplace || 'description' in json) base.description = options.description;
+  if (!marketplace || 'description' in json) base.description = options.description;
   if ('homepage' in json) base.homepage = `${url}#readme`;
   if ('repository' in json) base.repository = repositoryLike(json.repository, url);
-  if (isMarketplace) {
+  if (marketplace) {
     const index = (json.plugins ?? []).findIndex(p => p?.name === options.oldName);
     if (index < 0) throw new Error(`${path}: no plugin entry named "${options.oldName}" to rename`);
     base.plugins = json.plugins.map((p, i) =>

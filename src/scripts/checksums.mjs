@@ -1,9 +1,8 @@
 /**
  * Records or verifies sha256 checksums of the skill's reference files.
  *
- * Reference files (anything under `skills/<name>/references/`, or
- * `references/` for a root-level SKILL.md) are loaded by the model on
- * demand, whether written for this skill or copied in, and should change
+ * Reference files (anything under `plugin/skills/<name>/references/`) are
+ * loaded by the model on demand, whether written for this skill or copied in, and should change
  * only on purpose. `.github/reference-checksums.json` pins them;
  * `npm run validate` fails when a pinned file drifts or a new one appears
  * unrecorded, so every edit is a deliberate `npm run checksums`.
@@ -23,6 +22,7 @@ import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHECKSUM_FILE, diffChecksums, parseChecksums, serializeChecksums } from './lib/checks.mjs';
+import { SKILLS_DIR } from './lib/manifests.mjs';
 
 /**
  * Turns CRLF into LF in raw bytes, so checksums agree across platforms.
@@ -57,7 +57,7 @@ export const sha256 = bytes => createHash('sha256').update(normalizeEol(bytes)).
  *
  * @param {string} root  Absolute repo root.
  * @param {string} abs   Absolute path inside it.
- * @returns {string}  e.g. `skills/pdf/references/spec.md`.
+ * @returns {string}  e.g. `plugin/skills/pdf/references/spec.md`.
  */
 const toRepoPath = (root, abs) => relative(root, abs).split(sep).join('/');
 
@@ -108,18 +108,20 @@ export async function listSubdirectories(dir) {
 }
 
 /**
- * Lists every reference file in a repo.
+ * Lists every reference file in a repo, found only under each skill's folder inside the plugin.
  *
  * @param {string} root  Absolute repo root.
  * @returns {Promise<string[]>}  Repo-relative paths under
- *   `skills/<name>/references/` and root `references/`, sorted.
+ *   `plugin/skills/<name>/references/`, sorted.
  *
  * @example
- * await listReferenceFiles('/repo'); // ['skills/pdf/references/spec.md']
+ * await listReferenceFiles('/repo'); // ['plugin/skills/pdf/references/spec.md']
+ *
+ * @see SKILLS_DIR
  */
 export async function listReferenceFiles(root) {
-  const skillDirs = await listSubdirectories(join(root, 'skills'));
-  const dirs = [...skillDirs.map(d => join(root, 'skills', d, 'references')), join(root, 'references')];
+  const skillDirs = await listSubdirectories(join(root, SKILLS_DIR));
+  const dirs = skillDirs.map(d => join(root, SKILLS_DIR, d, 'references'));
   const files = (await Promise.all(dirs.map(walk))).flat();
   return files.map(f => toRepoPath(root, f)).sort();
 }
@@ -149,8 +151,8 @@ export async function readTextOrNull(root, path) {
  *   null for a file that does not exist.
  *
  * @example
- * await hashFiles('/repo', ['skills/pdf/references/spec.md', 'gone.md']);
- * // { 'skills/pdf/references/spec.md': '9f86d0...', 'gone.md': null }
+ * await hashFiles('/repo', ['plugin/skills/pdf/references/spec.md', 'gone.md']);
+ * // { 'plugin/skills/pdf/references/spec.md': '9f86d0...', 'gone.md': null }
  */
 export async function hashFiles(root, paths) {
   const pairs = await Promise.all(paths.map(async p => {

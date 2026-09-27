@@ -12,20 +12,20 @@ import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
-import { main, parseCli, chooseRepo, planManifests, skillDir, INITIAL_VERSION } from './init-skill.mjs';
-import { MANIFESTS, versionOf } from './lib/manifests.mjs';
+import { main, parseCli, chooseRepo, planManifests, skillDir, readManifests, identityManifest, INITIAL_VERSION } from './init-skill.mjs';
+import { CLAUDE_PLUGIN_PATH, MANIFESTS, MARKETPLACE_PATH, SKILLS_DIR, versionOf } from './lib/manifests.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCRATCH = join(ROOT, 'build', `init-skill-test-${randomBytes(4).toString('hex')}`);
 
 /** The template files a run touches; copied into each scratch repo. */
-const TEMPLATE_FILES = ['README.md', 'package.json', 'skills/skill-template/SKILL.md', ...MANIFESTS.map(m => m.path)];
+const TEMPLATE_FILES = ['README.md', 'package.json', 'plugin/skills/skill-template/SKILL.md', ...MANIFESTS.map(m => m.path)];
 
 /**
  * Whether this repo is still the template. Full runs copy the template's own
  * files, which are renamed once init-skill has run, so those tests then skip.
  */
-const IS_TEMPLATE = JSON.parse(await readFile(join(ROOT, '.claude-plugin/plugin.json'), 'utf8')).name === 'skill-template';
+const IS_TEMPLATE = JSON.parse(await readFile(join(ROOT, CLAUDE_PLUGIN_PATH), 'utf8')).name === 'skill-template';
 
 /** An origin reader that reports no remote, so runs never shell out to git. */
 const noOrigin = () => undefined;
@@ -90,6 +90,33 @@ describe('chooseRepo', () => {
   });
 });
 
+describe('skillDir', () => {
+  test('puts the skill under plugin/skills', () => {
+    assert.equal(skillDir('docket').split('\\').join('/'), 'plugin/skills/docket');
+  });
+});
+
+describe('readManifests / identityManifest', () => {
+  test('reads every existing manifest, skipping missing ones', async () => {
+    const dir = join(SCRATCH, 'read-manifests');
+    await mkdir(join(dir, 'plugin', '.claude-plugin'), { recursive: true });
+    await writeFile(join(dir, CLAUDE_PLUGIN_PATH), '{"name":"docket"}', 'utf8');
+    await writeFile(join(dir, 'package.json'), '{"name":"docket"}', 'utf8');
+    const originals = await readManifests(dir);
+    assert.deepEqual([...originals.keys()], [CLAUDE_PLUGIN_PATH, 'package.json']);
+    assert.equal(identityManifest(originals).name, 'docket');
+  });
+
+  test('a missing Claude plugin manifest is a clear error, and main writes nothing', async () => {
+    assert.throws(() => identityManifest(new Map([['package.json', '{}']])), /No plugin\/\.claude-plugin\/plugin\.json/);
+    const dir = join(SCRATCH, 'no-claude');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'package.json'), '{"name":"skill-template"}', 'utf8');
+    await assert.rejects(main({ argv: ['docket', 'Tracks tasks.'], root: dir, origin: noOrigin }), /No plugin\/\.claude-plugin\/plugin\.json/);
+    assert.deepEqual(await readdir(dir), ['package.json']);
+  });
+});
+
 describe('planManifests', () => {
   test('skips manifests that are missing and versions the rest at 0.1.0', async () => {
     const originals = new Map([['package.json', await readFile(join(ROOT, 'package.json'), 'utf8')]]);
@@ -105,7 +132,7 @@ describe('main on a scratch copy', { skip: IS_TEMPLATE ? false : 'repo already i
     const text = await main({ argv: ['docket', 'Tracks open tasks.'], root: dir, origin: noOrigin });
     assert.match(text, /Initialized skill "docket" for github\.com\/StoneCypher\/docket/);
 
-    assert.deepEqual(await readdir(join(dir, 'skills')), ['docket']);
+    assert.deepEqual(await readdir(join(dir, SKILLS_DIR)), ['docket']);
     const skill = await readFile(join(dir, skillDir('docket'), 'SKILL.md'), 'utf8');
     assert.match(skill, /^---\nname: docket\ndescription: Tracks open tasks\.\n---/);
 
@@ -115,8 +142,10 @@ describe('main on a scratch copy', { skip: IS_TEMPLATE ? false : 'repo already i
       if (versioned) assert.equal(versionOf(path, manifest), INITIAL_VERSION, path);
       assert.doesNotMatch(JSON.stringify(manifest), /skill-template/, path);
     }
-    const market = await json(dir, '.claude-plugin/marketplace.json');
+    const market = await json(dir, MARKETPLACE_PATH);
     assert.equal(market.plugins[0].name, 'docket');
+    assert.equal(market.plugins[0].source, './plugin', 'the marketplace still points at the plugin folder');
+    assert.equal((await json(dir, 'plugin/.codex-plugin/plugin.json')).skills, './skills/', 'the Codex skills path is untouched');
 
     const readme = await readFile(join(dir, 'README.md'), 'utf8');
     assert.match(readme, /^# docket\n\nTracks open tasks\.\n/);
@@ -130,8 +159,8 @@ describe('main on a scratch copy', { skip: IS_TEMPLATE ? false : 'repo already i
     await assert.rejects(main({ argv: ['ledger', 'Keeps a ledger.'], root: dir, origin: noOrigin }), /already initialized as "docket"/);
 
     await main({ argv: ['ledger', 'Keeps a ledger.', '--force'], root: dir, origin: noOrigin });
-    assert.deepEqual(await readdir(join(dir, 'skills')), ['ledger']);
-    assert.equal((await json(dir, '.claude-plugin/plugin.json')).repository, 'https://github.com/StoneCypher/ledger');
+    assert.deepEqual(await readdir(join(dir, SKILLS_DIR)), ['ledger']);
+    assert.equal((await json(dir, CLAUDE_PLUGIN_PATH)).repository, 'https://github.com/StoneCypher/ledger');
     const readme = await readFile(join(dir, 'README.md'), 'utf8');
     assert.match(readme, /\/plugin install ledger@ledger/);
     assert.doesNotMatch(readme, /docket/);
@@ -148,7 +177,7 @@ describe('main on a scratch copy', { skip: IS_TEMPLATE ? false : 'repo already i
   test('uses the origin remote for URLs when it is not the template', async () => {
     const dir = await scratchRepo('origin');
     await main({ argv: ['docket', 'Tracks open tasks.'], root: dir, origin: () => 'git@github.com:someone/docket-skill.git' });
-    assert.equal((await json(dir, '.codex-plugin/plugin.json')).homepage, 'https://github.com/someone/docket-skill#readme');
+    assert.equal((await json(dir, 'plugin/.codex-plugin/plugin.json')).homepage, 'https://github.com/someone/docket-skill#readme');
   });
 
   test('--help returns usage without touching files', async () => {

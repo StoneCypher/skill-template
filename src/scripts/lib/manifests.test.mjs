@@ -10,7 +10,10 @@ import assert from 'node:assert/strict';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MANIFESTS, versionOf, withVersion, readManifest, writeManifest } from './manifests.mjs';
+import {
+  CLAUDE_PLUGIN_PATH, MANIFESTS, MARKETPLACE_PATH, PLUGIN_ROOT, SKILLS_DIR,
+  isMarketplace, versionOf, withVersion, readManifest, writeManifest,
+} from './manifests.mjs';
 
 /** A scratch directory under build/, removed after the suite. */
 const SCRATCH = fileURLToPath(new URL(`../../../build/test-manifests-${process.pid}/`, import.meta.url));
@@ -34,9 +37,27 @@ describe('MANIFESTS', () => {
   });
 });
 
+describe('layout', () => {
+  test('host manifests live under the plugin folder; the marketplace and package.json stay at the root', () => {
+    assert.equal(PLUGIN_ROOT, 'plugin');
+    assert.equal(SKILLS_DIR, 'plugin/skills');
+    assert.equal(MARKETPLACE_PATH, '.claude-plugin/marketplace.json');
+    for (const { path } of MANIFESTS) {
+      const atRoot = path === MARKETPLACE_PATH || path === 'package.json';
+      assert.equal(path.startsWith(`${PLUGIN_ROOT}/`), !atRoot, path);
+    }
+    assert.ok(MANIFESTS.some(m => m.path === CLAUDE_PLUGIN_PATH));
+  });
+
+  test('isMarketplace tells the marketplace from plugin manifests', () => {
+    assert.deepEqual(MANIFESTS.filter(m => isMarketplace(m.path)).map(m => m.path), [MARKETPLACE_PATH]);
+    assert.equal(isMarketplace('plugin/.claude-plugin/plugin.json'), false);
+  });
+});
+
 describe('versionOf', () => {
   test('reads a plain manifest version', () => {
-    assert.equal(versionOf('.codex-plugin/plugin.json', { version: '0.1.0' }), '0.1.0');
+    assert.equal(versionOf('plugin/.codex-plugin/plugin.json', { version: '0.1.0' }), '0.1.0');
   });
 
   test('reads the marketplace entry named after the marketplace', () => {
@@ -105,7 +126,7 @@ describe('stochastic', () => {
       for (const { path } of MANIFESTS) {
         const name = `n${int(5)}`;
         const others = Array.from({ length: int(3) }, (_, i) => ({ name: `other${i}`, version: version() }));
-        const json = path.endsWith('marketplace.json')
+        const json = isMarketplace(path)
           ? { name, owner: { name: 'o' }, plugins: [...others, { name, version: version() }].sort(() => rand() - 0.5) }
           : { name, version: version(), extra: int(100) };
         const before = structuredClone(json);
@@ -113,7 +134,7 @@ describe('stochastic', () => {
         const out = withVersion(path, json, v);
         assert.equal(versionOf(path, out), v, `seed ${SEED} ${path}`);
         assert.deepEqual(json, before, `seed ${SEED}: input mutated`);
-        const strip = j => (path.endsWith('marketplace.json')
+        const strip = j => (isMarketplace(path)
           ? { ...j, plugins: j.plugins.map(p => (p.name === name ? { ...p, version: '' } : p)) }
           : { ...j, version: '' });
         assert.deepEqual(strip(out), strip(json), `seed ${SEED}: other fields changed`);

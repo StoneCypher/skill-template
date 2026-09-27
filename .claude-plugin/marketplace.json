@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "skill-template",
-      "source": "./",
+      "source": "./plugin",
       "description": "One-sentence description of what this skill does.",
       "version": "0.1.0"
     }
