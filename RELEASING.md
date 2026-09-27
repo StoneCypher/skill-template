@@ -5,6 +5,22 @@ Things learned while releasing skills from this template. Add each lesson when i
 ## Before the first release
 
 - [ ] **Test the install path in every host** (Claude Code, Codex, Antigravity, Gemini CLI). Where SKILL.md must sit for all of them to work from one repo is not yet verified.
+- [ ] **Keep SKILL.md at `skills/<name>/SKILL.md`, never at the repo root.** Tested 2026-09-26 on Claude Code 2.1.283 and Codex 0.144.1. The root layout works everywhere except a Codex marketplace install, which reports "installed, enabled" and then loads nothing. `skills/<name>/` works in every Claude and Codex install path. It also lets a user copy just that one folder, where the root layout forces them to copy the whole repo, `src/`, `.github/` and tests included.
+- [ ] **Verify what actually loaded; install messages can't be trusted.**
+  - Claude: `claude plugin details <plugin>@<marketplace>` lists a plugin's skills without calling the model.
+  - Codex: `codex debug prompt-input`, run in a neutral folder, shows whether `plugin:skill` reached the prompt.
+- [ ] **Codex reads `.claude-plugin/marketplace.json`** (`codex plugin marketplace add <path>`), so no separate Codex marketplace file is needed. `.codex-plugin/plugin.json` still decides where the skills come from.
+- [ ] **The name users type depends on how the skill was installed.** Document both forms in the README:
+  - As a plugin, it's `plugin:skill` (e.g. `docket:docket`). Claude also treats any skills-folder entry containing `.claude-plugin/plugin.json` as a plugin (`<name>@skills-dir`).
+  - As a bare skill folder, it's just `skill`.
+  - Codex adds the prefix from the nearest plugin manifest in any parent folder, so test fixtures must live outside any plugin repo.
+- [ ] **`claude plugin validate <dir>` checks only `marketplace.json` when both manifests exist.** Pass `.claude-plugin/plugin.json` as a file path to validate it too.
+- [ ] **Clean up by hand after local install tests.** Uninstalling and removing the marketplace leaves `~/.claude/plugins/cache/<marketplace>/` behind, and Codex leaves empty cache folders.
+- [ ] **Headless test runs:**
+  - Claude: pass `--setting-sources project,local`, or user stop hooks overwrite the final output. Read `--output-format stream-json --verbose`.
+  - Codex: pin `-m <model>`, because `exec` fails when the configured model is newer than the CLI.
+- [ ] **Codex also loads user skills from `~/.codex/skills/`,** not only the documented `~/.agents/skills/`.
+- [ ] **Antigravity can't be tested headlessly.** There's no `agy` on Windows, and `language_server.exe agentapi` needs a running IDE (`ANTIGRAVITY_LS_ADDRESS`). Check it by hand: open a workspace containing `.agents/skills/<name>/` and trigger the skill.
 - [ ] **Antigravity is not Gemini CLI.** They're separate Google products with different folders and install mechanisms. Checked against https://antigravity.google/docs/skills and /docs/plugins on 2026-09-26:
   - Workspace skills live in `.agents/skills/<name>/`, the same folder Codex uses. The older `.agent/skills/` (singular) still works, and many blog posts still cite it.
   - Global skills live in `~/.gemini/config/skills/<name>/` for the IDE and 2.0. `~/.gemini/antigravity/skills/` is legacy. The Antigravity CLI uses `~/.gemini/antigravity-cli/skills/`.
