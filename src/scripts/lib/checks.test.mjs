@@ -8,7 +8,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  checkSkillCount, expectedSkillName, checkNameFormat, checkDescriptionLength, checkGuardSentence,
+  checkSkillCount, expectedSkillName, checkNameFormat, checkDescriptionLength, checkDescriptionBrackets, checkGuardSentence,
   checkRequiredFields, checkSkill, parseManifests, checkManifestNames, checkVersions, parseChecksums,
   diffChecksums, checkReferenceChecksums, serializeChecksums, runChecks, NAME_MAX, DESCRIPTION_MAX,
 } from './checks.mjs';
@@ -76,6 +76,23 @@ describe('description', () => {
     assert.deepEqual(checkDescriptionLength('x'.repeat(DESCRIPTION_MAX), 'SKILL.md'), []);
     assert.match(checkDescriptionLength('x'.repeat(DESCRIPTION_MAX + 1), 'SKILL.md')[0].message, /1025 characters/);
   });
+  test('angle brackets are an error that names Claude Code', () => {
+    assert.deepEqual(checkDescriptionBrackets('Fills forms. Not for Word.', 'SKILL.md'), []);
+    for (const bad of ['Not for <things>.', 'a > b', 'a < b', '<tag/>']) {
+      const findings = checkDescriptionBrackets(bad, 'skills/x/SKILL.md');
+      assert.equal(errors(findings).length, 1, bad);
+      assert.match(findings[0].message, /^skills\/x\/SKILL\.md: .*Claude Code rejects angle brackets/);
+    }
+  });
+
+  test('checkSkill flags brackets in the parsed value, not in a >- block indicator', () => {
+    const folded = '---\nname: x\ndescription: >-\n  Fills forms.\n  Not for Word.\n---\n';
+    assert.deepEqual(checkSkill({ path: 'skills/x/SKILL.md', text: folded }, 'x').findings, []);
+    const bracketed = '---\nname: x\ndescription: >-\n  Fills forms.\n  Not for <things>.\n---\n';
+    const { findings } = checkSkill({ path: 'skills/x/SKILL.md', text: bracketed }, 'x');
+    assert.deepEqual(findings.map(f => [f.level, f.check]), [['error', 'description']]);
+  });
+
   test('guard sentence is matched case-insensitively on word boundaries', () => {
     assert.deepEqual(checkGuardSentence('Fills forms. NOT FOR Word.', 'SKILL.md'), []);
     assert.deepEqual(checkGuardSentence('Fills forms. Not for Word.', 'SKILL.md'), []);

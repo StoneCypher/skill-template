@@ -2,14 +2,14 @@
 
 This project is MIT licensed. Contributions are welcome.
 
-The whole skill is one file, `skills/<name>/SKILL.md`, plus the manifests that let each host install it and a few zero-dependency Node scripts that check it. There is nothing to build and nothing to `npm install`.
+The skill is `skills/<name>/SKILL.md` plus any optional reference files beside it in `skills/<name>/references/`, along with the manifests that let each host install it and a few zero-dependency Node scripts that check it. There is nothing to build and nothing to `npm install`.
 
 ## Table of contents
 
 - [How do I set up?](#how-do-i-set-up)
 - [How do I change the skill?](#how-do-i-change-the-skill)
 - [How do I check my change?](#how-do-i-check-my-change)
-- [How do I add or update a vendored reference file?](#how-do-i-add-or-update-a-vendored-reference-file)
+- [How do I add or update a reference file?](#how-do-i-add-or-update-a-reference-file)
 - [How do I write a commit message?](#how-do-i-write-a-commit-message)
 - [How do I submit a pull request?](#how-do-i-submit-a-pull-request)
 - [How is a release made?](#how-is-a-release-made)
@@ -27,6 +27,7 @@ Clone the repo. You need Node 22 or later. There are no dependencies to install.
 Edit `skills/<name>/SKILL.md`.
 
 - **The frontmatter `description` decides when the skill loads.** Hosts read it to choose which skill to use, so a change to it changes when the skill fires, not just how it reads. Name the phrases that should trigger it.
+- **Keep `<` and `>` out of the `description`.** Claude Code rejects a skill whose description contains angle brackets; `npm run validate` reports it as an error.
 - **Keep the "Not for…" guard sentence.** The `description` ends with a sentence saying what the skill is *not* for. It is what stops the skill firing on requests that merely share a word with it. If you change what the skill covers, update that sentence too; don't delete it.
 - **Keep the body concise.** Long reference material goes in `skills/<name>/references/`, and the body says when to load each file.
 
@@ -45,9 +46,9 @@ npm run validate
 
 ---
 
-## How do I add or update a vendored reference file?
+## How do I add or update a reference file?
 
-Files copied into `skills/<name>/references/` from elsewhere are pinned by checksum, so an accidental edit is caught. After adding or changing one, regenerate the checksums:
+Every file in `skills/<name>/references/` is pinned by checksum, so an accidental edit is caught and every change is deliberate. After adding, changing or removing one, regenerate the checksums:
 
 ```bash
 npm run checksums

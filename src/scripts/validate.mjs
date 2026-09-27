@@ -1,5 +1,5 @@
 /**
- * Validates a skill repo: frontmatter, names, manifests, versions, vendored files.
+ * Validates a skill repo: frontmatter, names, manifests, versions, reference files.
  *
  * Reads the repo once into a snapshot, runs the pure checks in lib/checks.mjs
  * on it, prints findings grouped by check, and exits 1 on any error. Warnings

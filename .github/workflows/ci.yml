@@ -3,7 +3,7 @@
 # don't run twice.
 #
 # `npm run validate` checks the SKILL.md frontmatter, that every manifest
-# names the skill and carries the same semver version, and that vendored
+# names the skill and carries the same semver version, and that the skill's
 # reference files match .github/reference-checksums.json. The repo has no npm
 # dependencies, so there is no install step.
 #

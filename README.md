@@ -17,17 +17,17 @@ A GitHub template for one [Agent Skill](https://agentskills.io) that installs in
    `init-skill` renames `skills/skill-template/` to `skills/<name>/`, then rewrites the name, description and GitHub URLs in SKILL.md, every manifest and `package.json`. It names the Claude marketplace after the skill, resets every version to `0.1.0`, resets `CHANGELOG.md` if there is one, and turns this README into the skill's README. It takes the repo from `git remote get-url origin`; pass `--repo owner/repo` to override that. It refuses to run a second time unless you pass `--force`.
 
    Names must be lowercase letters, digits and single hyphens, 1 to 64 characters, and must not contain `claude` or `anthropic`.
-3. Edit `skills/<name>/SKILL.md`. Put the instructions in the body. In the `description`, name the phrases that should trigger the skill, and end it with a **guard sentence** ("Not for …") listing things people say that should *not* trigger it.
+3. Edit `skills/<name>/SKILL.md`. Put the instructions in the body. In the `description`, name the phrases that should trigger the skill, and end it with a **guard sentence** ("Not for …") listing things people say that should *not* trigger it. Keep `<` and `>` out of the description: Claude Code rejects a skill whose description contains them. Put long material in optional reference files under `skills/<name>/references/` and run `npm run checksums` after changing one.
 4. Check your work: `npm test` runs the repo's tests and `npm run validate` checks the skill and its manifests.
 5. Run `npm run release` to cut a version, then work through [RELEASING.md](RELEASING.md).
 
-There are no npm dependencies. You only need Node 20 or later.
+There are no npm dependencies. You only need Node 22 or later.
 
 ### What each file is for
 
 | File | Purpose |
 |---|---|
-| `skills/skill-template/SKILL.md` | The skill itself: frontmatter (`name`, `description`) and instructions. Put reference files beside it. |
+| `skills/skill-template/SKILL.md` | The skill itself: frontmatter (`name`, `description`) and instructions. Put optional reference files beside it in `references/`. |
 | `.claude-plugin/plugin.json` | Claude Code plugin manifest. |
 | `.claude-plugin/marketplace.json` | Claude Code marketplace, named after the skill, listing this repo as its one plugin. |
 | `.codex-plugin/plugin.json` | Codex plugin manifest. |
@@ -35,7 +35,7 @@ There are no npm dependencies. You only need Node 20 or later.
 | `package.json` | Holds the repo's npm scripts, and a version that is kept in step with the manifests. It is never published to npm. |
 | `src/scripts/init-skill.mjs` | Turns the template into your skill (step 2). |
 | `src/scripts/validate.mjs` | `npm run validate`: checks SKILL.md and that all versions agree. |
-| `src/scripts/checksums.mjs` | `npm run checksums`: writes checksums of the skill's files. |
+| `src/scripts/checksums.mjs` | `npm run checksums`: pins the skill's reference files by checksum, so every edit to one is deliberate. |
 | `src/scripts/release.mjs` | `npm run release`: bumps every manifest's version together. |
 | `src/scripts/lint-commits.mjs` | Fails on commits without a Conventional Commits header, since `release` reads versions from those headers. |
 | `src/scripts/lib/manifests.mjs` | The list of manifests and where each keeps its version. |
@@ -124,6 +124,13 @@ In PowerShell, replace `cp -r` with `Copy-Item -Recurse`, and write `~` as `$HOM
 ```powershell
 Copy-Item -Recurse <name>\skills\<name> $HOME\.claude\skills\
 ```
+
+### Calling it by name
+
+The skill triggers on its own when a request matches its description. To call it by name, the name depends on how it was installed:
+
+- **As a plugin**, it may appear as `<name>:<name>` (plugin name, then skill name).
+- **As a bare skill folder**, it's just `<name>`.
 
 ## License
 

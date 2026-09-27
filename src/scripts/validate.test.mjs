@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { findSkillPaths, formatFindings, readSnapshot } from './validate.mjs';
 import { listReferenceFiles, main as checksumsMain, sha256 } from './checksums.mjs';
-import { runChecks } from './lib/checks.mjs';
+import { CHECKSUM_FILE, runChecks } from './lib/checks.mjs';
 import { MANIFESTS } from './lib/manifests.mjs';
 
 const run = promisify(execFile);
@@ -38,6 +38,21 @@ async function fixture(name) {
     });
   }
   return dir;
+}
+
+/**
+ * Removes every reference file and the checksum file from a fixture, so a test starts with none.
+ *
+ * A skill made from the template may ship its own references; tests that
+ * reason about "no references yet" must not depend on the repo having none.
+ *
+ * @param {string} dir  Absolute fixture root.
+ * @returns {Promise<void>}
+ */
+async function stripReferences(dir) {
+  const skillDirs = (await findSkillPaths(dir)).map(p => join(dir, p.replace(/SKILL\.md$/, '')));
+  const targets = [...new Set([...skillDirs, dir])].map(d => join(d, 'references'));
+  await Promise.all([...targets, join(dir, CHECKSUM_FILE)].map(t => rm(t, { recursive: true, force: true })));
 }
 
 /** Reads a snapshot and returns only the error findings. */
@@ -68,7 +83,16 @@ describe('validate', () => {
   test('a root-level SKILL.md named like package.json validates', async () => {
     const dir = await fixture('root-layout');
     const [found] = await findSkillPaths(dir);
-    if (found !== 'SKILL.md') await rename(join(dir, found), join(dir, 'SKILL.md'));
+    if (found !== 'SKILL.md') {
+      await rename(join(dir, found), join(dir, 'SKILL.md'));
+      // Reference files move with the skill; their checksum keys must follow.
+      const refs = join(dir, found.replace(/SKILL\.md$/, ''), 'references');
+      const moved = await rename(refs, join(dir, 'references')).then(() => true, err => {
+        if (err.code !== 'ENOENT') throw err;
+        return false;
+      });
+      if (moved) await checksumsMain(['--write', dir]);
+    }
     await rm(join(dir, 'skills'), { recursive: true, force: true });
     assert.deepEqual(await findSkillPaths(dir), ['SKILL.md']);
     assert.deepEqual(await errorsIn(dir), []);
@@ -110,10 +134,11 @@ describe('checksums', () => {
 
   test('write, verify, and detect edits, additions and removals', async () => {
     const dir = await fixture('references');
+    await stripReferences(dir);
     const [skill] = await findSkillPaths(dir);
     const refs = join(dir, skill.replace(/SKILL\.md$/, ''), 'references');
     await mkdir(join(refs, 'deep'), { recursive: true });
-    await writeFile(join(refs, 'spec.md'), 'vendored spec\n');
+    await writeFile(join(refs, 'spec.md'), 'reference spec\n');
     await writeFile(join(refs, 'deep', 'table.csv'), 'a,b\n');
 
     assert.match((await errorsIn(dir))[0].message, /no \.github\/reference-checksums\.json/);
@@ -124,7 +149,7 @@ describe('checksums', () => {
     assert.deepEqual(await errorsIn(dir), []);
     assert.equal((await exec(CHECKSUMS, [dir])).code, 0);
 
-    await writeFile(join(refs, 'spec.md'), 'vendored spec\r\n');
+    await writeFile(join(refs, 'spec.md'), 'reference spec\r\n');
     assert.deepEqual(await errorsIn(dir), [], 'a CRLF-only change is not drift');
 
     await writeFile(join(refs, 'spec.md'), 'edited spec\n');
@@ -141,6 +166,7 @@ describe('checksums', () => {
 
   test('--write with no references and no checksum file creates nothing', async () => {
     const dir = await fixture('no-references');
+    await stripReferences(dir);
     await rm(join(dir, '.github'), { recursive: true, force: true });
     assert.equal(await checksumsMain(['--write', dir]), 0);
     await assert.rejects(readFile(join(dir, '.github', 'reference-checksums.json')), { code: 'ENOENT' });

@@ -9,7 +9,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test \"src/scripts/**/*.test.mjs\"",
+    "test": "node --test --test-reporter=dot \"src/scripts/**/*.test.mjs\"",
     "validate": "node src/scripts/validate.mjs",
     "checksums": "node src/scripts/checksums.mjs --write",
     "release": "node src/scripts/release.mjs",

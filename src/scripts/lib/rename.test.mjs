@@ -43,7 +43,9 @@ const SHIPPED = Object.freeze({ skip: IS_TEMPLATE ? false : 'repo already initia
 /** A SKILL.md in the template's shape, so stochastic tests run in any repo. */
 const SKILL_FIXTURE = `---
 name: skill-template
-description: One or two sentences on what this skill does. Not for <other things>.
+description: >-
+  TODO: one or two sentences on what this skill does. TODO: replace this
+  line with a guard sentence.
 ---
 
 # skill-template
@@ -300,6 +302,7 @@ describe('renameReadme', () => {
     assert.match(out, /^# docket$/m);
     assert.match(out, /\/plugin install docket@docket/);
     assert.match(out, /\/plugin marketplace add StoneCypher\/docket/);
+    assert.match(out, /`docket:docket`/, 'the plugin invocation name is filled in');
     for (const residue of ['<name>', '<repo>', '<description>', 'template-only', 'skill-only', 'init-skill', 'skill-template']) {
       assert.equal(out.includes(residue), false, `README still contains "${residue}"`);
     }

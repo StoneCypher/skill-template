@@ -1,11 +1,12 @@
 /**
- * Records or verifies sha256 checksums of vendored reference files.
+ * Records or verifies sha256 checksums of the skill's reference files.
  *
- * Vendored files (anything under `skills/<name>/references/`, or
- * `references/` for a root-level SKILL.md) are copied from elsewhere and
- * should change only on purpose. `.github/reference-checksums.json` pins
- * them; `npm run validate` fails when a pinned file drifts or a new one
- * appears unrecorded.
+ * Reference files (anything under `skills/<name>/references/`, or
+ * `references/` for a root-level SKILL.md) are loaded by the model on
+ * demand, whether written for this skill or copied in, and should change
+ * only on purpose. `.github/reference-checksums.json` pins them;
+ * `npm run validate` fails when a pinned file drifts or a new one appears
+ * unrecorded, so every edit is a deliberate `npm run checksums`.
  *
  * Usage:
  *   node src/scripts/checksums.mjs [root]           report drift; exit 1 if any
@@ -107,7 +108,7 @@ export async function listSubdirectories(dir) {
 }
 
 /**
- * Lists every vendored reference file in a repo.
+ * Lists every reference file in a repo.
  *
  * @param {string} root  Absolute repo root.
  * @returns {Promise<string[]>}  Repo-relative paths under
@@ -200,24 +201,24 @@ export const describeDrift = ({ missing, changed, unlisted }) => [
 export async function main(args) {
   const write = args.includes('--write');
   const root = resolve(args.find(a => !a.startsWith('--')) ?? process.cwd());
-  const vendored = await listReferenceFiles(root);
+  const references = await listReferenceFiles(root);
   const existing = await readTextOrNull(root, CHECKSUM_FILE);
   const listed = existing === null ? {} : parseChecksums(existing).listed;
-  const actual = await hashFiles(root, [...new Set([...Object.keys(listed), ...vendored])]);
-  const drift = describeDrift(diffChecksums(listed, actual, vendored));
+  const actual = await hashFiles(root, [...new Set([...Object.keys(listed), ...references])]);
+  const drift = describeDrift(diffChecksums(listed, actual, references));
   if (write) {
-    if (vendored.length === 0 && existing === null) {
-      console.log('No vendored reference files; no checksum file needed.');
+    if (references.length === 0 && existing === null) {
+      console.log('No reference files; no checksum file needed.');
       return 0;
     }
-    const current = Object.fromEntries(vendored.map(p => [p, actual[p]]));
+    const current = Object.fromEntries(references.map(p => [p, actual[p]]));
     await mkdir(dirname(join(root, CHECKSUM_FILE)), { recursive: true });
     await writeFile(join(root, CHECKSUM_FILE), serializeChecksums(current), 'utf8');
-    console.log(`Wrote ${CHECKSUM_FILE} (${vendored.length} file(s)).${drift.length ? `\n${drift.join('\n')}` : ''}`);
+    console.log(`Wrote ${CHECKSUM_FILE} (${references.length} file(s)).${drift.length ? `\n${drift.join('\n')}` : ''}`);
     return 0;
   }
   if (drift.length === 0) {
-    console.log(`${CHECKSUM_FILE} is up to date (${vendored.length} file(s)).`);
+    console.log(`${CHECKSUM_FILE} is up to date (${references.length} file(s)).`);
     return 0;
   }
   console.log(`${CHECKSUM_FILE} is out of date; run npm run checksums if these changes are deliberate:\n${drift.join('\n')}`);

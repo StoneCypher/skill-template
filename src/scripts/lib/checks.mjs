@@ -43,8 +43,8 @@ import { versionOf } from './manifests.mjs';
  * @property {SkillFile[]} skills              Every SKILL.md found, sorted by path.
  * @property {ManifestFile[]} manifests        One entry per `MANIFESTS` item.
  * @property {string | null} checksumText      The checksum file's text, or null if absent.
- * @property {string[]} referencePaths         Repo-relative paths of every vendored reference file.
- * @property {Record<string, string | null>} hashes  sha256 of each listed or vendored path; null if missing.
+ * @property {string[]} referencePaths         Repo-relative paths of every reference file on disk.
+ * @property {Record<string, string | null>} hashes  sha256 of each listed or on-disk reference path; null if missing.
  */
 
 /** Longest skill name the Agent Skills spec allows. */
@@ -62,7 +62,7 @@ export const GUARD_PATTERN = /\bNot for\b/i;
 /** Semantic Versioning 2.0.0, from semver.org. */
 export const SEMVER_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$/;
 
-/** Where the vendored-reference checksums live. */
+/** Where the reference-file checksums live. */
 export const CHECKSUM_FILE = '.github/reference-checksums.json';
 
 /** A lowercase sha256 hex digest. */
@@ -176,6 +176,31 @@ export function checkDescriptionLength(description, path) {
 }
 
 /**
+ * Rejects a description containing `<` or `>`, which Claude Code refuses to load.
+ *
+ * Claude Code treats angle brackets in a skill description as XML-like tags
+ * and rejects the skill, so a placeholder such as `<things>` left in the
+ * description stops it installing at all. YAML block indicators (`>-`) sit
+ * outside the parsed value and are unaffected.
+ *
+ * @param {string} description  The parsed frontmatter `description`.
+ * @param {string} path         The SKILL.md path, for messages.
+ * @returns {Finding[]}  One error when the description has an angle bracket, else none.
+ *
+ * @example
+ * checkDescriptionBrackets('Reads PDFs. Not for Word files.', 'SKILL.md'); // []
+ * @example
+ * checkDescriptionBrackets('Reads PDFs. Not for <things>.', 'SKILL.md'); // one error
+ *
+ * @see checkSkill
+ */
+export function checkDescriptionBrackets(description, path) {
+  return /[<>]/.test(description)
+    ? [error('description', `${path}: description contains "<" or ">"; Claude Code rejects angle brackets in a skill description, so reword it without them`)]
+    : [];
+}
+
+/**
  * Warns when a description never says what the skill is not for.
  *
  * A guard sentence ("Not for ...") keeps a skill from triggering on nearby
@@ -218,7 +243,7 @@ export function checkRequiredFields(data, path) {
 }
 
 /**
- * Parses and checks one SKILL.md: frontmatter, fields, name and description.
+ * Parses and checks one SKILL.md: frontmatter, fields, name and description (length, angle brackets, guard).
  *
  * @param {SkillFile} skill                  The file.
  * @param {string | undefined} packageName  package.json's name, for the root layout.
@@ -251,6 +276,7 @@ export function checkSkill(skill, packageName) {
     ...(hasName ? checkNameFormat(data.name, skill.path) : []),
     ...mismatch,
     ...(hasDescription ? checkDescriptionLength(data.description, skill.path) : []),
+    ...(hasDescription ? checkDescriptionBrackets(data.description, skill.path) : []),
     ...(hasDescription ? checkGuardSentence(data.description, skill.path) : []),
   ];
   return { findings, name: hasName ? data.name : undefined };
@@ -383,29 +409,29 @@ export function parseChecksums(text) {
  *
  * @param {Record<string, string>} listed                  Recorded path -> digest.
  * @param {Record<string, string | null>} actual           Actual path -> digest; null when the file is missing.
- * @param {string[]} vendored                              Every vendored reference path on disk.
+ * @param {string[]} onDisk                                Every reference file path on disk.
  * @returns {{ missing: string[], changed: string[], unlisted: string[] }}
  *   Listed files that are gone, listed files whose content changed, and
- *   vendored files the checksum file does not list. Each sorted.
+ *   reference files the checksum file does not list. Each sorted.
  *
  * @example
  * diffChecksums({ 'a.md': 'x' }, { 'a.md': 'y', 'b.md': 'z' }, ['a.md', 'b.md']);
  * // { missing: [], changed: ['a.md'], unlisted: ['b.md'] }
  */
-export function diffChecksums(listed, actual, vendored) {
+export function diffChecksums(listed, actual, onDisk) {
   const paths = Object.keys(listed).sort();
   return {
     missing: paths.filter(p => actual[p] === null || actual[p] === undefined),
     changed: paths.filter(p => typeof actual[p] === 'string' && actual[p] !== listed[p]),
-    unlisted: [...vendored].sort().filter(p => !Object.hasOwn(listed, p)),
+    unlisted: [...onDisk].sort().filter(p => !Object.hasOwn(listed, p)),
   };
 }
 
 /**
- * Checks that vendored reference files match their recorded checksums.
+ * Checks that reference files match their recorded checksums.
  *
- * Every listed file must exist and match, and every vendored file must be
- * listed, so adding or editing a vendored file is always deliberate.
+ * Every listed file must exist and match, and every reference file must be
+ * listed, so adding or editing a reference file is always deliberate.
  *
  * @param {Pick<RepoSnapshot, 'checksumText' | 'referencePaths' | 'hashes'>} snapshot
  * @returns {Finding[]}
@@ -419,7 +445,7 @@ export function checkReferenceChecksums({ checksumText, referencePaths, hashes }
   if (checksumText === null) {
     return referencePaths.length === 0
       ? []
-      : [error('references', `${referencePaths.length} vendored reference file(s) but no ${CHECKSUM_FILE}; run npm run checksums`)];
+      : [error('references', `${referencePaths.length} reference file(s) but no ${CHECKSUM_FILE}; run npm run checksums`)];
   }
   const { findings, listed } = parseChecksums(checksumText);
   const { missing, changed, unlisted } = diffChecksums(listed, hashes, referencePaths);

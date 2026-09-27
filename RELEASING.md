@@ -34,6 +34,10 @@ Things learned while releasing skills from this template. Add each lesson when i
 - [ ] **Name each repo's Claude marketplace after its skill.** A user can hold only one marketplace per name, so if every skill repo shipped `"name": "stonecypher"`, the second one added would collide with the first. `npm run init-skill` sets this for you.
 - [ ] **After `npm run init-skill`, search the repo for `skill-template`.** Any hit outside `src/scripts/` is a spot the rename missed.
 - [ ] **The SKILL.md `description` has two hard limits:** at most 1024 characters, and no `<` or `>`. Claude rejects angle brackets, so placeholders like `<thing>` can't stay in a shipped description.
+- [ ] **Trigger-test the description before shipping, one headless run at a time.** Parallel `claude -p` runs get killed together by Claude Code's memory reaper, leaving no output. Use `claude -p "<prompt>" --plugin-dir <repo> --setting-sources project,local --output-format stream-json --verbose > out.jsonl`. Look for `"name":"Skill"` with your skill in `out.jsonl`, and check the opening skill list for competing user-level skills. Test phrases that should fire and phrases that shouldn't, including the name's other meanings. docket passed 6 of 6 on 2026-09-26.
+- [ ] **If the skill reads a user config file, SKILL.md must spell out every rule**: lookup order, no merging between files, unknown keys, invalid values, invalid JSON. The model reads the file itself, so nothing else enforces those rules.
+- [ ] **Check that special characters survived.** Typed non-breaking spaces (U+00A0) can be saved as ordinary spaces. Grep for `\x{00A0}` if the skill depends on them.
+- [ ] **Run `npm test` again after adding the first file under `references/`,** not only right after init. Tests can pass on the template and fail once references exist.
 - [ ] **Write the guard sentence**: the `description` says what the skill is NOT for.
 - [ ] **Strip personal preferences and provenance notes** before shipping.
 
