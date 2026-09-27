@@ -1,0 +1,16 @@
+{
+  "name": "skill-template",
+  "owner": {
+    "name": "John Haugeland",
+    "email": "stonecypher@gmail.com",
+    "url": "https://github.com/StoneCypher"
+  },
+  "plugins": [
+    {
+      "name": "skill-template",
+      "source": "./",
+      "description": "One-sentence description of what this skill does.",
+      "version": "0.1.0"
+    }
+  ]
+}

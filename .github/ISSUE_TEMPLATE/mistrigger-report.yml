@@ -1,0 +1,104 @@
+name: Mistrigger report
+description: The skill fired when it shouldn't have, or didn't fire when it should have
+labels: ["mistrigger"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Whether a skill loads is decided by the host reading the skill's `description`. This is the most common kind of skill bug, and the exact prompt is the most useful thing you can send.
+
+  - type: dropdown
+    id: direction
+    attributes:
+      label: What went wrong?
+      options:
+        - It fired when it should not have (false positive)
+        - It did not fire when it should have (false negative)
+    validations:
+      required: true
+
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Prompt
+      description: The exact message you sent, word for word. Remove anything private, but keep the wording that seemed to matter.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it was wrong
+      description: What you were actually asking for, and why this skill was or wasn't the right one for it.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      options:
+        - Claude Code
+        - Codex
+        - Antigravity
+        - Gemini CLI
+        - Other (say which below)
+    validations:
+      required: true
+
+  - type: input
+    id: host-version
+    attributes:
+      label: Host version
+      description: For example, the output of `claude --version`, `codex --version`, or `gemini --version`, or Antigravity's Help > About.
+    validations:
+      required: true
+
+  - type: input
+    id: skill-version
+    attributes:
+      label: Skill version
+      description: The version in the installed plugin manifest, or the commit you installed from.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      options:
+        - Claude Code plugin marketplace (/plugin install)
+        - Codex plugin
+        - Antigravity plugin (agy plugin install)
+        - Copied the skill folder into a skills directory by hand
+        - Other (say which below)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: repeatable
+    attributes:
+      label: Does it happen every time?
+      description: Triggering is not deterministic. If you can, try the same prompt in a fresh session a few times.
+      options:
+        - Every time I tried
+        - Sometimes
+        - Only once / didn't retry
+    validations:
+      required: true
+
+  - type: textarea
+    id: other-skills
+    attributes:
+      label: Other skills or plugins installed
+      description: For a false positive, another skill may have been the right one. For a false negative, another skill may have won instead. Name any that seem related.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+    validations:
+      required: false

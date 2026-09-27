@@ -1,0 +1,84 @@
+name: Bug report
+description: The skill ran, but did the wrong thing
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form when the skill loaded and ran but its behavior was wrong.
+        If the skill fired when it shouldn't have, or didn't fire when it should have, use the **Mistrigger report** form instead.
+
+  - type: dropdown
+    id: host
+    attributes:
+      label: Host
+      description: Which agent were you using?
+      options:
+        - Claude Code
+        - Codex
+        - Antigravity
+        - Gemini CLI
+        - Other (say which below)
+    validations:
+      required: true
+
+  - type: input
+    id: host-version
+    attributes:
+      label: Host version
+      description: For example, the output of `claude --version`, `codex --version`, or `gemini --version`, or Antigravity's Help > About.
+    validations:
+      required: true
+
+  - type: input
+    id: skill-version
+    attributes:
+      label: Skill version
+      description: The version in the installed plugin manifest, or the commit you installed from.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: Install method
+      options:
+        - Claude Code plugin marketplace (/plugin install)
+        - Codex plugin
+        - Antigravity plugin (agy plugin install)
+        - Copied the skill folder into a skills directory by hand
+        - Other (say which below)
+    validations:
+      required: true
+
+  - type: textarea
+    id: prompt
+    attributes:
+      label: Prompt
+      description: The exact message you sent that led to the problem. Remove anything private.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happened instead
+      description: Paste the relevant part of the agent's reply or transcript.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: OS, other skills or plugins installed that might compete with this one, screenshots, or anything else that seems relevant.
+    validations:
+      required: false
